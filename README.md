@@ -87,20 +87,19 @@ rather than a message queue.
 
 ## How to build a different team
 
-Nothing here is tied to five seats or to these five roles. To reshape it:
+Nothing here is tied to five seats or to these five roles — not the tooling, not
+the tool count, not the domain. **The team is whatever role files sit in
+`agents/`**: add a file and the seat exists, delete one and it is gone.
+`seat-up.ps1` derives the roster from that directory, so there is no second list
+to keep in sync.
 
-1. **Change the roster** in `state/AGENTS.md` and add role files to `agents/`.
-   A two-seat pair (builder + reviewer) works as well as a large team.
-2. **Split a role.** A frontend builder and a backend builder are two seats with
-   two role files; the contract does not care.
-3. **Change the state root.** `tools/team.mjs` resolves everything relative to
-   itself, so moving the repo moves the state.
-4. **Swap the multiplexer.** Replace the two `herdr` calls in the contract with
-   your multiplexer's equivalents; nothing else assumes herdr.
+📖 **[docs/creating-a-team.md](docs/creating-a-team.md)** — the full guide:
+how to pick roles, write a role file, update the contract, and seat the result.
+Includes a two-seat worked example and the pitfalls.
 
-Read [`docs/capability-scoping.md`](docs/capability-scoping.md) before you try to
-give seats different tools, MCP servers, or plugins. Several obvious approaches
-silently do nothing.
+📖 **[docs/capability-scoping.md](docs/capability-scoping.md)** — read this
+before giving seats different tools, MCP servers, or plugins. Several obvious
+approaches silently do nothing, and one of them looks like it works.
 
 ## License
 

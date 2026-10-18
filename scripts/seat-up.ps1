@@ -1,20 +1,31 @@
 # Bring the whole agent-team up in one herdr workspace.
 # usage: powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 [-DryRun]
 #
-# Every seat runs the same way: claude --agent <role>. MCP servers, skills and
-# plugins all come from the user's global config (~/.claude), so there is no
-# per-seat settings file. What separates the seats is the role file: its system
-# prompt and, where a role must not write, its tools list.
+# The team is whatever role files sit in agents/ - there is no separate roster
+# list to keep in sync. Add a role file (and run install.ps1) to add a seat;
+# delete one to drop it. Every seat runs the same way: claude --agent <role>.
+# MCP servers, skills and plugins all come from the user's global config
+# (~/.claude), so there is no per-seat settings file.
 param([switch]$DryRun)
 
-$Root  = Split-Path -Parent $PSScriptRoot
-$Seats = @('orchestrator', 'builder', 'reviewer', 'qa', 'runner')
+$Root = Split-Path -Parent $PSScriptRoot
+$AgentsDir = Join-Path $Root 'agents'
+
+if (-not (Test-Path $AgentsDir)) { throw "no agents/ directory in $Root" }
+$Seats = @(Get-ChildItem $AgentsDir -Filter *.md |
+           Sort-Object Name |
+           ForEach-Object { $_.BaseName })
+if ($Seats.Count -eq 0) { throw "agents/ holds no .md role files" }
+
+# The seat you talk to belongs in pane 1, so put it first if the team has one.
+$first = $Seats | Where-Object { $_ -eq 'orchestrator' }
+if ($first) { $Seats = @($first) + @($Seats | Where-Object { $_ -ne 'orchestrator' }) }
 
 foreach ($s in $Seats) {
     $roleFile = Join-Path $HOME ".claude\agents\$s.md"
-    if (-not (Test-Path $roleFile)) { throw "missing role file: $roleFile" }
+    if (-not (Test-Path $roleFile)) { throw "role '$s' is in agents/ but not installed - run scripts/install.ps1" }
 }
-Write-Host "preflight ok: $($Seats.Count) role files present"
+Write-Host "team: $($Seats -join ', ')"
 
 if ($DryRun) {
     Write-Host "  would: herdr workspace create --cwd $Root --label agent-team --no-focus"
