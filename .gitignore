@@ -1,0 +1,9 @@
+node_modules/
+*.log
+logs/
+state/locks/
+.claude/settings.local.json
+
+# local experiments — never publish
+.claude/
+state/tasks/perm-test*.md
