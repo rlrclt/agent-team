@@ -1,106 +1,171 @@
 # agent-team
 
-A team of independent coding agents that **talk to each other directly** — not
-subagents of one parent session.
+A high-performance, machine-first team of independent AI coding agents running in dedicated terminal panes. Teammates talk to each other directly, enforce deterministic boundaries, and continuously learn from human feedback — without heavy frameworks or background daemons.
 
-Each teammate is its own long-lived process in its own terminal pane, with its
-own context, its own identity, and its own task history. They coordinate through
-a shared state directory on disk and message each other over the multiplexer CLI.
-
-The point is that work outlives a single turn. A subagent dies when its parent's
-turn ends; a seat keeps its name and its context across restarts, so the next
-piece of work goes back to the same teammate.
+Each teammate runs as its own long-lived process in its own terminal pane via [herdr](https://github.com/herdrdev/herdr), holding its own context, role identity, and memory. They coordinate through an atomic filesystem state layer and fast CLI tools.
 
 ```
-┌──────────────┐   herdr agent prompt / wait   ┌──────────────┐
-│ orchestrator │ ────────────────────────────► │   builder    │
-│  (pane 1)    │ ◄──────────────────────────── │   (pane 2)   │
-└──────┬───────┘        done / blocked         └──────┬───────┘
-       │                                              │
-       │         ┌──────────────────────┐             │
-       └────────►│ state/               │◄────────────┘
-                 │  AGENTS.md  contract │
-                 │  tasks/*.md  prose   │
-                 │  events.jsonl  state │
-                 │  locks/    ownership │
-                 └──────────────────────┘
+┌──────────────┐     tools/team.mjs send / herdr     ┌──────────────────┐
+│ orchestrator │ ──────────────────────────────────► │ builder-frontend │
+│  (pane 1)    │ ◄────────────────────────────────── │     (pane 2)     │
+└──────┬───────┘          status / blocker           └────────┬─────────┘
+       │                                                      │
+       │                   ┌──────────────────────┐           │
+       │                   │ state/               │           │
+       └──────────────────►│  AGENTS.md contract  │◄──────────┘
+                           │  tasks/*.json specs  │
+                           │  learnings.jsonl     │
+                           │  events.jsonl state  │
+                           │  locks/   ownership  │
+                           └──────────────────────┘
 ```
 
-## What you get
+---
 
-| Piece | What it does |
-|---|---|
-| `tools/team.mjs` | atomic claim / release / log / ls / selftest — no daemon, no dependency |
-| `state/AGENTS.md` | the team contract every teammate reads first |
-| `agents/*.md` | example role files: orchestrator, builder, reviewer, qa, runner |
-| `scripts/install.ps1` | copies the role files into `~/.claude/agents/` |
-| `scripts/seat-up.ps1` | brings the whole team up in one workspace |
+## Key Features & Philosophy
 
-## Requirements
+1. **Machine-First & Token-Efficient:**
+   - Tasks and Playbooks are structured JSON / JSONL (`state/tasks/*.json`, `state/learnings.jsonl`).
+   - Fast CLI queries (`node tools/team.mjs view <id>`) return ultra-dense constraints (~8 lines) instead of forcing agents to read 100-line Markdown files.
+2. **Deterministic Scope Enforcement:**
+   - Role boundaries (`builder-frontend` cannot touch backend APIs; `builder-backend` cannot touch UI) and Task boundaries (`allow` / `deny` globs) are validated programmatically at `log done`. Violations exit code 1 immediately.
+3. **Continuous Learning (Playbook):**
+   - Teach the team once (`node tools/team.mjs add-lesson <tag> "<rule>"`). The rule is auto-injected whenever an agent views a relevant task, and the Reviewer fails code that repeats past mistakes.
+4. **Peer-to-Peer Interaction:**
+   - Agents can message and delegate to peers directly (`node tools/team.mjs send <from> <to> "<msg>"`), with all exchanges logged to `events.jsonl` for auditability.
+5. **Anti-Sycophancy (Human Challenge Gate):**
+   - The Orchestrator actively challenges the human when instructions violate architecture, skip review/QA, or risk data loss, offering safe alternatives rather than blindly complying.
+6. **Zero-Daemon / Zero-Dependency:**
+   - State coordination uses plain Node.js standard libraries (`node:fs`, `node:path`, `node:child_process`). No database setup, no background daemons.
 
-- A terminal multiplexer that can drive agent panes. Built and tested against
-  [herdr](https://github.com/herdrdev/herdr); the model is generic but the
-  commands in `seat-up.ps1` and the contract are herdr-shaped.
-- [Claude Code](https://claude.com/claude-code) (`claude`) on PATH.
-- Node.js 22+ (for `tools/team.mjs`). No npm install — it is dependency-free.
+---
 
-## Quickstart
+## The 6 Teammates
 
+| Role | Herdr Pane | Role File | Scope & Responsibility |
+|---|---|---|---|
+| `orchestrator` | `p1` | `agents/orchestrator.md` | Requirements, API contracts, task generation, gatekeeping. **Never writes feature code.** |
+| `builder-frontend` | `p2` | `agents/builder-frontend.md` | UI slices: App Router pages, components, CSS, a11y. **Never touches API, DB, or server.** |
+| `builder-backend` | `p3` | `agents/builder-backend.md` | Server slices: route handlers, server actions, schemas, auth. **Never touches UI or styling.** |
+| `qa` | `p4` | `agents/qa.md` | Evidence-based manual/user-path testing against running apps. **Never edits code.** |
+| `reviewer` | `p5` | `agents/reviewer.md` | Read-only code review. Audits spec, boundaries, and past learnings. Gives PASS/FAIL. |
+| `runner` | `p6` | `agents/runner.md` | Shell execution: git, npm, scaffold, dev servers, migrations, builds. |
+
+---
+
+## Quickstart (คู่มือการติดตั้งและใช้งาน)
+
+### Prerequisites (สิ่งที่ต้องมีในเครื่อง)
+* **Windows** (Native PowerShell) or macOS/Linux.
+* **Node.js 22+** (on PATH).
+* **[herdr](https://github.com/herdrdev/herdr)** (v0.9.5+ on PATH).
+* **[Claude Code CLI](https://claude.com/claude-code)** (`claude` on PATH, signed in).
+
+### Step 1: Clone Repository
 ```powershell
 git clone https://github.com/rlrclt/agent-team.git
 cd agent-team
-
-# 1. put the role files where Claude Code looks for them
-powershell -ExecutionPolicy Bypass -File scripts/install.ps1
-
-# 2. check the plan, then bring the team up
-powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -DryRun
-powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1
-
-# 3. give the orchestrator work — it dispatches from there
-herdr agent prompt orchestrator "Add a dark-mode toggle to <repo>."
-herdr agent read orchestrator
 ```
 
-You talk to the orchestrator. It writes a task file, dispatches to the seat that
-owns the work, and reports back. You do not relay messages between teammates.
+### Step 2: Install Role Files to Claude
+Copies the role definition files into `~/.claude/agents/`:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -Force
+```
 
-## Design decisions
+### Step 3: Launch the Whole Team
+Brings up all 6 seats in a split herdr workspace:
+```powershell
+# Check setup without starting
+powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -DryRun
 
-**Prose and state live in different files.** A task's brief, spec and
-out-of-scope notes are markdown — humans and models both read narrative better
-than they query. Status is an append-only JSONL log written only through
-`tools/team.mjs`. Mixing the two is what lets two teammates append the same
-result twice.
+# Launch the live team
+powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1
+```
 
-**Claiming is atomic.** `mkdir state/locks/<id>` either wins or throws `EEXIST`.
-The filesystem decides the owner, not a protocol. Verified: eight processes
-racing for one claim produce exactly one winner.
+### Step 4: Dispatch Work
+You communicate with the **Orchestrator** (Pane 1). Give it your high-level goal:
+```powershell
+herdr agent prompt orchestrator "Implement user registration flow in workspace/my-app"
+```
+The Orchestrator will:
+1. Audit your request against contracts and clarify requirements.
+2. Generate task JSON specs in `state/tasks/<id>.json`.
+3. Dispatch to `builder-frontend` and `builder-backend` asynchronously.
+4. Builders collaborate and report back.
+5. `reviewer` and `qa` verify the work before it is marked complete.
 
-**No database, no daemon.** At this scale SQLite buys query power nobody needs
-yet and taxes every read with a subprocess. If the log ever outgrows grepping,
-`events.jsonl` imports into SQLite in one pass.
+---
 
-**Talking beats polling.** `herdr agent wait --until done --until blocked` returns
-the moment a teammate finishes or gets stuck. That is what makes this a team
-rather than a message queue.
+## CLI Reference (`tools/team.mjs`)
 
-## How to build a different team
+Every command is fast, dependency-free, and machine-friendly:
 
-Nothing here is tied to five seats or to these five roles — not the tooling, not
-the tool count, not the domain. **The team is whatever role files sit in
-`agents/`**: add a file and the seat exists, delete one and it is gone.
-`seat-up.ps1` derives the roster from that directory, so there is no second list
-to keep in sync.
+```sh
+# 1. Create a machine-readable task (Orchestrator)
+node tools/team.mjs new-task 001 builder-frontend "Add dark mode toggle" \
+  --allow "app/components/**,app/globals.css" \
+  --deny "app/api/**,prisma/**" \
+  --spec "Add button;Save cookie" \
+  --verify "npm test"
 
-📖 **[docs/creating-a-team.md](docs/creating-a-team.md)** — the full guide:
-how to pick roles, write a role file, update the contract, and seat the result.
-Includes a two-seat worked example and the pitfalls.
+# 2. View task spec with auto-injected rules (<10 lines)
+node tools/team.mjs view 001
+# Or get raw JSON:
+node tools/team.mjs view 001 --json
 
-📖 **[docs/capability-scoping.md](docs/capability-scoping.md)** — read this
-before giving seats different tools, MCP servers, or plugins. Several obvious
-approaches silently do nothing, and one of them looks like it works.
+# 3. Claim and release task locks (Atomic filesystem lock)
+node tools/team.mjs claim 001 builder-frontend
+node tools/team.mjs release 001 builder-frontend
+
+# 4. Log progress with strict boundary enforcement
+node tools/team.mjs log 001 builder-frontend done --note "Added button" --files "app/components/theme.tsx"
+# Reviewer logging verdict:
+node tools/team.mjs log 001 reviewer done --verdict PASS --note "All specs satisfied"
+
+# 5. Peer messaging (Talk directly to another agent)
+node tools/team.mjs send builder-frontend builder-backend "Need response type for /api/user"
+node tools/team.mjs inbox builder-backend
+
+# 6. Continuous Learning (Playbook)
+node tools/team.mjs add-lesson auth "Use httpOnly cookies for session JWT" --forbid "localStorage"
+node tools/team.mjs learn auth
+
+# 7. Check global team status in 5 lines
+node tools/team.mjs status
+```
+
+---
+
+## Project Structure
+
+```
+agent-team/
+├── agents/             # Master role definitions (.md)
+│   ├── orchestrator.md
+│   ├── builder-frontend.md
+│   ├── builder-backend.md
+│   ├── reviewer.md
+│   ├── qa.md
+│   └── runner.md
+├── scripts/
+│   ├── install.ps1     # Copies role files to ~/.claude/agents/
+│   └── seat-up.ps1     # Starts herdr workspace with all seats
+├── state/
+│   ├── AGENTS.md       # Central team contract
+│   ├── CONTRACT.md     # Feature-level API contracts
+│   ├── events.jsonl    # Append-only state & messaging log
+│   ├── learnings.jsonl # Machine-readable past human lessons
+│   ├── locks/          # Atomic task directories
+│   └── tasks/          # Task specs (JSON & Markdown)
+├── tools/
+│   └── team.mjs        # Core state, boundary guard & communication engine
+└── workspace/          # Your application repositories (ignored by git)
+```
+
+---
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+

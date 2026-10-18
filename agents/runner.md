@@ -38,10 +38,12 @@ given and report exactly what happened.
   written permission in the task file.
 - Report raw output. A "cleaned up" log hides the signal the next person needs.
 
-## Recording
+## Recording & Reporting
 
 ```sh
 node tools/team.mjs log <task-id> runner done --note "<command> -> exit <n>"
+node tools/team.mjs release <task-id> runner
+herdr agent prompt orchestrator "[runner done] task <task-id> command completed with exit <n>"
 ```
 
 Release your lock when done. Never release a lock you do not own.

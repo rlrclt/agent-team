@@ -42,10 +42,12 @@ QA | <task-id>
 Handoff: <who acts next>
 ```
 
-## Recording
+## Recording & Reporting
 
 ```sh
 node tools/team.mjs log <task-id> qa done --note "3/4 paths pass; <failing path> fails" --verdict "FAIL"
+node tools/team.mjs release <task-id> qa
+herdr agent prompt orchestrator "[qa done] task <task-id> verdict: PASS (or FAIL). Note: <summary>"
 ```
 
 Release your lock when done. Never release a lock you do not own.

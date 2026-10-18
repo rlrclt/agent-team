@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "id": "NNN",
+  "role": "builder-frontend",
+  "goal": "One-line clear outcome statement",
+  "boundary": {
+    "allow": ["app/components/**"],
+    "deny": ["app/api/**", "actions/**", "prisma/**"]
+  },
+  "spec": [
+    "1. Exact requirement with testable condition",
+    "2. Exact requirement with testable condition"
+  ],
+  "verify": "npm test"
+}

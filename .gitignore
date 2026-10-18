@@ -4,6 +4,9 @@ logs/
 state/locks/
 .claude/settings.local.json
 
-# local experiments — never publish
+# project workspaces & experiments — never publish
+workspace/
+.opencode/
 .claude/
 state/tasks/perm-test*.md
+
