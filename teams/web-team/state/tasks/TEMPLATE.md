@@ -21,4 +21,4 @@ The exact command that proves it (e.g. `npx tsc --noEmit` → exit 0).
 
 ## Notes
 Anything the owner learned that the next person needs. Prose only — status goes
-in `state/events.jsonl` via `node tools/team.mjs`.
+in `teams/web-team/state/events.jsonl` via `node tools/muster.mjs`.

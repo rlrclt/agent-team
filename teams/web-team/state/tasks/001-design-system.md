@@ -8,7 +8,7 @@ Design a modern, cohesive UI Design System (called "Aurora UI") featuring a clea
 ## Known context
 - `designer` has FigCraft MCP tools available (`mcp__figcraft__*`) connecting to `C:\Program Files\FigCraft\figcraft-cli.exe`.
 - Git repository initialized at `workspace/design-system/`.
-- Project conventions in `state/AGENTS.md`.
+- Project conventions in `teams/web-team/AGENTS.md`.
 
 ## Spec
 1. Define design tokens in `workspace/design-system/tokens.css`:
@@ -33,6 +33,6 @@ Both output files exist and are non-empty:
 `test -s workspace/design-system/tokens.css && test -s workspace/design-system/README.md`
 
 ## Notes
-Use `node tools/team.mjs claim 001-design-system designer` before starting.
+Use `node tools/team.mjs --team web-team claim 001-design-system designer` before starting.
 Log progress and release when done via `tools/team.mjs`.
 Review will be performed by `reviewer` upon completion.

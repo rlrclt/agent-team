@@ -1,4 +1,4 @@
-{"tag":"general","rule":"Read task spec via node tools/team.mjs view <id> before acting; never guess requirements","forbid":["guessing","assuming"],"date":"2026-10-18"}
+{"tag":"general","rule":"Read task spec via node tools/muster.mjs view <id> before acting; never guess requirements","forbid":["guessing","assuming"],"date":"2026-10-18"}
 {"tag":"code","rule":"English for code identifiers and comments; Thai fine for discussions","forbid":["thai_variable_names"],"date":"2026-10-18"}
 {"tag":"scope","rule":"Never touch files outside assigned boundary: frontend stays in UI, backend in API/Server","forbid":["cross_boundary_without_override"],"date":"2026-10-18"}
 {"tag":"auth","rule":"Secrets and database connections must remain server-side","forbid":["NEXT_PUBLIC_SECRET","client_jwt_storage"],"date":"2026-10-18"}

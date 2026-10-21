@@ -1,36 +1,28 @@
-# Copy the role files into the user's Claude Code agents directory.
-# usage: powershell -ExecutionPolicy Bypass -File scripts/install.ps1 [-Force]
+# Copy the team role files into the user's Claude Code agents directory.
+# usage: powershell -ExecutionPolicy Bypass -File scripts/install.ps1 [-Team <name>] [-Force]
 #
-# Claude Code discovers user-level subagents and --agent targets in
-# ~/.claude/agents/. An existing file with the same name is left alone unless
-# -Force is passed, so a local edit is not silently overwritten.
-param([switch]$Force)
+# Thin wrapper: the copy, the <team> token substitution, the frontmatter
+# rewrite and the collision guard all live in `node tools/muster.mjs team
+# install`, so selftest covers them. This script only forwards flags.
+param([string]$Team, [switch]$Force)
 
-$Repo  = Split-Path -Parent $PSScriptRoot
-$Src   = Join-Path $Repo 'agents'
-$Dest  = Join-Path $HOME '.claude\agents'
+$Repo = Split-Path -Parent $PSScriptRoot
+$nodeArgs = @('tools/muster.mjs', 'team', 'install')
+if ($Team) { $nodeArgs += $Team }
+if ($Force) { $nodeArgs += '--force' }
 
-if (-not (Test-Path $Src)) { throw "no agents/ directory in $Repo" }
-New-Item -ItemType Directory -Force $Dest | Out-Null
-
-$copied = 0; $skipped = 0
-foreach ($f in Get-ChildItem $Src -Filter *.md) {
-    $target = Join-Path $Dest $f.Name
-    if ((Test-Path $target) -and -not $Force) {
-        Write-Host "  skip   $($f.Name)  (exists - use -Force to overwrite)"
-        $skipped++
-        continue
-    }
-    Copy-Item $f.FullName $target -Force
-    Write-Host "  copy   $($f.Name)"
-    $copied++
+Push-Location $Repo
+try {
+    node @nodeArgs
+    if ($LASTEXITCODE -ne 0) { throw "install failed (exit $LASTEXITCODE)" }
+} finally {
+    Pop-Location
 }
 
-Write-Host "`n$copied copied, $skipped skipped -> $Dest"
 Write-Host @"
 
-These files define the seats' roles. Edit them before seating a team - the
-example roles are opinionated and yours will differ.
+Installed role files are prefixed with the team name (e.g. web-team-orchestrator.md)
+so two teams' roles can never overwrite each other.
 
 Note: a running Claude Code session does not notice a newly created agents
 directory. If ~/.claude/agents did not exist before, restart your sessions.

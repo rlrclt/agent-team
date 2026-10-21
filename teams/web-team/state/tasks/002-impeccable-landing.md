@@ -8,7 +8,7 @@ Design an award-winning, production-grade landing page for "Aetheria — Autonom
 ## Known context
 - `designer` has the `impeccable` skill (`~/.claude/skills/impeccable/SKILL.md`) and FigCraft MCP tools.
 - Git repository initialized at `workspace/landing-page/`.
-- Project conventions in `state/AGENTS.md`.
+- Project conventions in `teams/web-team/AGENTS.md`.
 - Mode: **Persuade** (earn attention, distinctive visual anchor, high contrast, crisp copy).
 
 ## Spec
@@ -37,7 +37,7 @@ Design an award-winning, production-grade landing page for "Aetheria — Autonom
 `test -s workspace/landing-page/index.html && test -s workspace/landing-page/styles.css && test -s workspace/landing-page/README.md && test -s workspace/landing-page/landing.figcraft`
 
 ## Notes
-- Claim before work: `node tools/team.mjs claim 002-impeccable-landing designer`
-- Release and log when done: `node tools/team.mjs log 002-impeccable-landing designer done ...`
+- Claim before work: `node tools/team.mjs --team web-team claim 002-impeccable-landing designer`
+- Release and log when done: `node tools/team.mjs --team web-team log 002-impeccable-landing designer done ...`
 - Report back asynchronously to orchestrator via:
-  `herdr agent prompt orchestrator "[designer done] task 002-impeccable-landing finished..."`
+  `herdr agent prompt web-team-orchestrator "[designer done] task 002-impeccable-landing finished..."`

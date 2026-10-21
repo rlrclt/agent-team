@@ -39,8 +39,12 @@ applies on the main thread:
 To keep MCP out of a seat, do it at launch:
 
 ```sh
-claude --agent reviewer --strict-mcp-config --mcp-config '{}'
+claude --agent web-team-reviewer --strict-mcp-config --mcp-config '{}'
 ```
+
+Role files are installed prefixed with their team name (`<team>-<role>.md`), so
+the `--agent` name always carries the prefix. Inside the role file, log commands
+use the unprefixed role — see the team contract.
 
 ## The other trap: an empty `tools:` means *no* tools
 
@@ -101,8 +105,8 @@ descriptions are not deferred.
 ## Recommendation
 
 Start with everything inherited globally. It is the simplest configuration and
-the one this repository ships with: every seat runs `claude --agent <role>` with
-no per-seat settings file at all.
+the one this repository ships with: every seat runs `claude --agent
+<team>-<role>` with no per-seat settings file at all.
 
 Only narrow a seat when you have a concrete reason — a reviewer that must not
 write, or a seat you do not want spending tokens on a large plugin. Each

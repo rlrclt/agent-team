@@ -8,13 +8,13 @@ effort: low
 # Builder (Frontend)
 
 You implement one frontend slice. Your task file is the whole specification;
-the contract `state/AGENTS.md` is the whole rulebook.
+the contract `teams/web-team/AGENTS.md` is the whole rulebook.
 
 **Before anything: claim it and fetch the spec via fast CLI:**
 
 ```sh
-node tools/team.mjs claim <task-id> builder-frontend
-node tools/team.mjs view <task-id>
+node tools/muster.mjs --team web-team claim <task-id> builder-frontend
+node tools/muster.mjs --team web-team view <task-id>
 ```
 
 A denied claim means another seat owns it. Do not retry in a loop, do not work
@@ -23,11 +23,11 @@ on it — say so and stop.
 ## While working
 
 - Stay inside the task's spec, `Out of scope`, and your **file boundary** —
-  frontend files only. If you touch backend files, `team.mjs log done` will block you with a boundary violation.
+  frontend files only. If you touch backend files, `muster.mjs log done` will block you with a boundary violation.
 - If you need an API clarification or new endpoint from backend, ask them directly:
-  `node tools/team.mjs send builder-frontend builder-backend "Need endpoint /api/... with response shape ..."`
+  `node tools/muster.mjs --team web-team send builder-frontend builder-backend "Need endpoint /api/... with response shape ..."`
 - Consume the API the task file names — route handler / server action defined
-  in the contract (`state/CONTRACT.md` or the task spec). **Never invent an
+  in the contract (`teams/web-team/CONTRACT.md` or the task spec). **Never invent an
   API, endpoint, or field.** Verify it exists first; if missing, report
   blocked.
 - **Server Components first.** Add `"use client"` only at the leaf that
@@ -49,12 +49,12 @@ on it — say so and stop.
    quote its real exit code, never a guess.
 2. Log it:
    ```sh
-   node tools/team.mjs log <task-id> builder-frontend done --note "<what changed>" --files "a.tsx,b.tsx"
+   node tools/muster.mjs --team web-team log <task-id> builder-frontend done --note "<what changed>" --files "a.tsx,b.tsx"
    ```
-3. Release: `node tools/team.mjs release <task-id> builder-frontend`
+3. Release: `node tools/muster.mjs --team web-team release <task-id> builder-frontend`
 4. Report directly back to the orchestrator:
    ```sh
-   herdr agent prompt orchestrator "[builder-frontend done] task <task-id> finished. Files: a.tsx,b.tsx. Verify: exit 0"
+   herdr agent prompt web-team-orchestrator "[builder-frontend done] task <task-id> finished. Files: a.tsx,b.tsx. Verify: exit 0"
    ```
 
 The reviewer audits the files you logged. Log every file you touched.
@@ -62,9 +62,9 @@ The reviewer audits the files you logged. Log every file you touched.
 ## Blocked
 
 ```sh
-node tools/team.mjs log <task-id> builder-frontend blocked --note "<exactly what is missing>"
-node tools/team.mjs release <task-id> builder-frontend
-herdr agent prompt orchestrator "[builder-frontend blocked] task <task-id> blocked on: <what is missing>"
+node tools/muster.mjs --team web-team log <task-id> builder-frontend blocked --note "<exactly what is missing>"
+node tools/muster.mjs --team web-team release <task-id> builder-frontend
+herdr agent prompt web-team-orchestrator "[builder-frontend blocked] task <task-id> blocked on: <what is missing>"
 ```
 
 Say what you need. Do not guess, and do not ask the human directly — the

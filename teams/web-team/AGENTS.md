@@ -1,13 +1,30 @@
-# TEAM CONTRACT — agent-team
+# TEAM CONTRACT — web-team
 
 Read this file first. It is the shared truth for every agent on this team.
+
+**You are team `web-team`.** Every work command needs `--team web-team`; without
+it the tool refuses to run. Your herdr and `--agent` name is `web-team-<role>`,
+while the `<role>` you pass to `muster.mjs log`/`claim`/`send` is unprefixed. This
+team owns the repository named in `teams/web-team/team.json`.
+
+## Re-orienting after a restart
+
+After a restart or a context compaction, do not guess and do not trust memory.
+One command tells you who you are, what you hold, and who is waiting on you:
+
+```sh
+node tools/muster.mjs --team web-team brief <your-role>
+```
+
+It prints the team, your herdr address, the contract path, the tasks you hold a
+lock on, messages addressed to you, and your own last events.
 
 ## Two kinds of state (do not mix them)
 
 | | where | who writes | why |
 |---|---|---|---|
-| **Prose** — brief, spec, known context, out-of-scope | `state/tasks/<id>.md` | the author of the task | narrative; agents read it far better than they query |
-| **State** — claimed / blocked / done / handoff | `state/events.jsonl` | `tools/team.mjs` only | append-only, atomic; never hand-edit |
+| **Prose** — brief, spec, known context, out-of-scope | `teams/web-team/state/tasks/<id>.md` | the author of the task | narrative; agents read it far better than they query |
+| **State** — claimed / blocked / done / handoff | `teams/web-team/state/events.jsonl` | `tools/muster.mjs` only | append-only, atomic; never hand-edit |
 
 Never write status into the task `.md`. Never write prose into the `.jsonl`.
 Disk is the source of truth. Your memory is a hint.
@@ -18,10 +35,10 @@ Do not waste context reading raw task folders or parsing Markdown yourself. Use 
 
 ```sh
 # Read focused brief, spec, out-of-scope, and verify command (<30 lines)
-node tools/team.mjs view <task-id>
+node tools/muster.mjs --team web-team view <task-id>
 
 # Check active claims and team progress summary
-node tools/team.mjs status [task-id]
+node tools/muster.mjs --team web-team status [task-id]
 ```
 
 ## Claim before you work (mandatory)
@@ -30,18 +47,18 @@ A task has one owner at a time. Claiming is atomic — the winner is decided by
 the filesystem, not by guessing.
 
 ```sh
-node tools/team.mjs claim <task-id> <your-agent-name>
+node tools/muster.mjs --team web-team claim <task-id> <your-agent-name>
 ```
 
 Denied means someone else owns it. Do not work on it, do not retry in a loop —
 ask the orchestrator or pick different work. When done, and in the same turn:
 
 ```sh
-node tools/team.mjs log <task-id> <agent> done --note "..." --files "a.ts,b.ts"
-node tools/team.mjs release <task-id> <agent>
+node tools/muster.mjs --team web-team log <task-id> <agent> done --note "..." --files "a.ts,b.ts"
+node tools/muster.mjs --team web-team release <task-id> <agent>
 ```
 
-`team.mjs log done` strictly checks role boundaries. A frontend agent touching `/api/` or a backend agent touching `/components/` will fail with exit 1.
+`muster.mjs log done` strictly checks role boundaries. A frontend agent touching `/api/` or a backend agent touching `/components/` will fail with exit 1.
 
 A lock left behind by a dead agent is released by the orchestrator with an
 explicit `release <id> <agent> stale`. Never release a lock you do not own.
@@ -49,24 +66,28 @@ explicit `release <id> <agent> stale`. Never release a lock you do not own.
 ## Talking to another agent (Peer Messaging & Reverse Reporting)
 
 Agents can and SHOULD interact directly when coordinating on interfaces, asking clarification, or delegating runs.
-Use `node tools/team.mjs send` to message any peer (it delivers via herdr and logs the interaction to `events.jsonl` for full visibility):
+Use `node tools/muster.mjs --team web-team send` to message any peer (it delivers via herdr and logs the interaction to `events.jsonl` for full visibility):
 
 ```sh
-# Send a message / request to any peer
-node tools/team.mjs send <your-agent> <target-seat> "<message>"
+# Send a message / request to any peer. --task is mandatory: a message that
+# hands out work must cite the task it belongs to, so it can be tracked.
+node tools/muster.mjs --team web-team send <your-agent> <target-seat> "<message>" --task <task-id>
 
 # Example: builder-frontend asking builder-backend for API response shape
-node tools/team.mjs send builder-frontend builder-backend "Need response type for /api/books/claim"
+node tools/muster.mjs --team web-team send builder-frontend builder-backend "Need response type for /api/books/claim" --task 004
 
 # Example: builder-backend delegating a test run to runner
-node tools/team.mjs send builder-backend runner "Run npm run test:db and report exit code"
+node tools/muster.mjs --team web-team send builder-backend runner "Run npm run test:db and report exit code" --task 004
 
 # Check recent messages addressed to you
-node tools/team.mjs inbox <your-agent>
+node tools/muster.mjs --team web-team inbox <your-agent>
+
+# Find messages that named no task (should always be empty)
+node tools/muster.mjs --team web-team orphans
 
 # Status reporting back to orchestrator upon completion or blocker
-herdr agent prompt orchestrator "[<agent> done] task <task-id> finished. Files: ... Verify: ..."
-herdr agent prompt orchestrator "[<agent> blocked] task <task-id> blocked on: ..."
+herdr agent prompt web-team-orchestrator "[<agent> done] task <task-id> finished. Files: ... Verify: ..."
+herdr agent prompt web-team-orchestrator "[<agent> blocked] task <task-id> blocked on: ..."
 ```
 
 ## Team Learnings & Past Human Corrections (Continuous Learning)
@@ -75,13 +96,13 @@ When the human teaches a rule or corrects a mistake, record it so no agent ever 
 
 ```sh
 # Add a lesson taught by the human
-node tools/team.mjs add-lesson <tag> "<what to do or what not to do>"
+node tools/muster.mjs --team web-team add-lesson <tag> "<what to do or what not to do>"
 
 # Query past lessons before coding or reviewing
-node tools/team.mjs learn [tag/keyword]
+node tools/muster.mjs --team web-team learn [tag/keyword]
 ```
-`team.mjs view <task-id>` automatically detects and displays relevant past lessons at the top of the task spec.
-Reviewers must audit changes against `node tools/team.mjs learn` — any regression to a known mistake is an automatic FAIL.
+`muster.mjs view <task-id>` automatically detects and displays relevant past lessons at the top of the task spec.
+Reviewers must audit changes against `node tools/muster.mjs --team web-team learn` — any regression to a known mistake is an automatic FAIL.
 
 ## Rules for ALL agents
 
@@ -89,12 +110,12 @@ Reviewers must audit changes against `node tools/team.mjs learn` — any regress
 2. Stay inside your task's scope. Touching anything else needs a line in the log.
 3. Never edit another agent's task file.
 4. When finished: log done, release lock, then report back to orchestrator:
-   `herdr agent prompt orchestrator "[<agent> done] task <id> finished. Files: ... Verify: ..."`
+   `herdr agent prompt web-team-orchestrator "[<agent> done] task <id> finished. Files: ... Verify: ..."`
    When blocked: `log <id> <agent> blocked --note "<what is missing>"`, release, and report:
-   `herdr agent prompt orchestrator "[<agent> blocked] task <id> blocked on: ..."`
+   `herdr agent prompt web-team-orchestrator "[<agent> blocked] task <id> blocked on: ..."`
    Do not guess, do not ask the human directly — report to the orchestrator.
 5. If your context was compacted: do not trust memory. Re-read
-   `state/tasks/*.md`, run `node tools/team.mjs ls`, reconcile, report one line.
+   `teams/web-team/state/tasks/*.md`, run `node tools/muster.mjs --team web-team ls`, reconcile, report one line.
 6. English in code and comments. Thai is fine in conversation with the orchestrator.
 
 ## Orchestrator hard rules (binding)
@@ -122,7 +143,7 @@ files (or the reverse) is WARNED even if the code is good. The reviewer writes
 its own verdict event:
 
 ```sh
-node tools/team.mjs log <task-id> reviewer done --verdict "PASS" --note "..."
+node tools/muster.mjs --team web-team log <task-id> reviewer done --verdict "PASS" --note "..."
 ```
 
 FAIL goes back to the builder. The orchestrator re-dispatches review at most once.
@@ -144,11 +165,13 @@ are the same string, so the launch command needs no mapping table.
 All seats run from this repository's root. Re-seat one after a restart:
 
 ```sh
-herdr agent start <role> --kind claude --pane <pane> -- --agent <role>
+herdr agent start web-team-<role> --kind claude --pane <pane> -- --agent web-team-<role>
 ```
 
-Run `powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1` to bring the
-whole team up in one workspace (`-DryRun` prints the plan without starting anything).
+Run `powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -Team web-team`
+to bring the whole team up in one workspace (`-DryRun` prints the plan without
+starting anything). It runs `team doctor` first and refuses to start a team that
+is not ready.
 
 ### Capability scoping
 
@@ -173,14 +196,17 @@ later want a seat to have no MCP, it must come from launch flags
 ## Layout
 
 ```
-agent-team/
-├── state/
+muster/
+├── teams/web-team/
+│   ├── team.json      <- name, workspace, status
+│   ├── agents/        <- this team's role files (the roster)
 │   ├── AGENTS.md      <- this file
-│   ├── CONTRACT.md    <- per-feature API/data contract (created as needed)
-│   ├── events.jsonl   <- append-only state log (tools/team.mjs only)
-│   ├── locks/         <- one dir per claimed task (the lock itself)
-│   └── tasks/         <- one .md per task: prose only
-├── tools/team.mjs     <- claim / release / log / ls / selftest
+│   └── state/
+│       ├── CONTRACT.md    <- per-feature API/data contract (created as needed)
+│       ├── events.jsonl   <- append-only state log (tools/muster.mjs only)
+│       ├── locks/         <- one dir per claimed task (the lock itself)
+│       └── tasks/         <- one .md per task: prose only
+├── tools/muster.mjs     <- team management + claim / release / log / ls / selftest
 ├── workspace/         <- the project repo(s); git-initialized before any edit
 └── logs/              <- raw stdout/stderr per CLI run
 ```
