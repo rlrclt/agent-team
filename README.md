@@ -2,6 +2,8 @@
 
 A high-performance, machine-first team of independent AI coding agents running in dedicated terminal panes. Teammates talk to each other directly, enforce deterministic boundaries, and continuously learn from human feedback — without heavy frameworks or background daemons.
 
+One repository hosts any number of **independent teams**. Each team lives in `teams/<name>/` with its own agents, contract, task queue, event log and lessons, so two teams can never see or overwrite each other's work.
+
 Each teammate runs as its own long-lived process in its own terminal pane via [herdr](https://github.com/herdrdev/herdr), holding its own context, role identity, and memory. They coordinate through an atomic filesystem state layer and fast CLI tools.
 
 ```
@@ -10,14 +12,14 @@ Each teammate runs as its own long-lived process in its own terminal pane via [h
 │  (pane 1)    │ ◄────────────────────────────────── │     (pane 2)     │
 └──────┬───────┘          status / blocker           └────────┬─────────┘
        │                                                      │
-       │                   ┌──────────────────────┐           │
-       │                   │ state/               │           │
-       └──────────────────►│  AGENTS.md contract  │◄──────────┘
-                           │  tasks/*.json specs  │
-                           │  learnings.jsonl     │
-                           │  events.jsonl state  │
-                           │  locks/   ownership  │
-                           └──────────────────────┘
+       │                ┌──────────────────────┐              │
+       │                │ teams/<name>/state/  │              │
+       └───────────────►│  AGENTS.md contract  │◄─────────────┘
+                        │  tasks/*.json specs  │
+                        │  learnings.jsonl     │
+                        │  events.jsonl state  │
+                        │  locks/   ownership  │
+                        └──────────────────────┘
 ```
 
 ---
@@ -67,31 +69,56 @@ git clone https://github.com/rlrclt/agent-team.git
 cd agent-team
 ```
 
-### Step 2: Install Role Files to Claude
-Copies the role definition files into `~/.claude/agents/`:
+### Step 2: Pick or Create a Team
+
+One repository hosts many teams. Each team lives in `teams/<name>/` and owns its
+own agents, contract and state — teams can never see or overwrite each other's
+work.
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -Force
+# See what exists
+node tools/team.mjs team list
+
+# Create a new team (empty; you write its role files)
+node tools/team.mjs team new pbmobile ../pbmobile
+
+# Or inspect the team that ships with this repo
+node tools/team.mjs team info web-team
 ```
 
-### Step 3: Launch the Whole Team
-Brings up all 6 seats in a split herdr workspace:
-```powershell
-# Check setup without starting
-powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -DryRun
+A new team starts as `draft`. It becomes `ready` only when `doctor` passes — two
+role files, a git-initialized workspace, and a valid `team.json`.
 
-# Launch the live team
-powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1
+### Step 3: Install Role Files to Claude
+Copies each team's role files into `~/.claude/agents/`, prefixed with the team
+name (`web-team-orchestrator.md`), so two teams can never overwrite each other:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -Team web-team
 ```
 
-### Step 4: Dispatch Work
-You communicate with the **Orchestrator** (Pane 1). Give it your high-level goal:
+### Step 4: Check and Launch the Team
 ```powershell
-herdr agent prompt orchestrator "Implement user registration flow in workspace/my-app"
+# Health check: workspace, role files, installed copies, stale locks
+node tools/team.mjs team doctor web-team
+
+# See the launch plan without starting anything
+powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -Team web-team -DryRun
+
+# Launch the live team in its own herdr workspace
+powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -Team web-team
+```
+`seat-up.ps1` runs `doctor` first and refuses to start a team that is not `ready`.
+
+### Step 5: Dispatch Work
+You communicate with the **Orchestrator** (Pane 1). Every herdr address carries
+the team prefix:
+```powershell
+herdr agent prompt web-team-orchestrator "Implement user registration flow in ../my-app"
 ```
 The Orchestrator will:
 1. Audit your request against contracts and clarify requirements.
-2. Generate task JSON specs in `state/tasks/<id>.json`.
-3. Dispatch to `builder-frontend` and `builder-backend` asynchronously.
+2. Generate task JSON specs in `teams/web-team/state/tasks/<id>.json`.
+3. Dispatch to `web-team-builder-frontend` and `web-team-builder-backend`.
 4. Builders collaborate and report back.
 5. `reviewer` and `qa` verify the work before it is marked complete.
 
@@ -99,40 +126,48 @@ The Orchestrator will:
 
 ## CLI Reference (`tools/team.mjs`)
 
-Every command is fast, dependency-free, and machine-friendly:
+Every command is fast, dependency-free, and machine-friendly. Work commands need
+`--team <name>`; there is no default team.
 
 ```sh
+# 0. Team management
+node tools/team.mjs team list
+node tools/team.mjs team new pbmobile ../pbmobile
+node tools/team.mjs team info pbmobile
+node tools/team.mjs team doctor pbmobile
+
 # 1. Create a machine-readable task (Orchestrator)
-node tools/team.mjs new-task 001 builder-frontend "Add dark mode toggle" \
+node tools/team.mjs --team pbmobile new-task 001 builder-frontend "Add dark mode toggle" \
   --allow "app/components/**,app/globals.css" \
   --deny "app/api/**,prisma/**" \
   --spec "Add button;Save cookie" \
   --verify "npm test"
 
 # 2. View task spec with auto-injected rules (<10 lines)
-node tools/team.mjs view 001
+node tools/team.mjs --team pbmobile view 001
 # Or get raw JSON:
-node tools/team.mjs view 001 --json
+node tools/team.mjs --team pbmobile view 001 --json
 
 # 3. Claim and release task locks (Atomic filesystem lock)
-node tools/team.mjs claim 001 builder-frontend
-node tools/team.mjs release 001 builder-frontend
+node tools/team.mjs --team pbmobile claim 001 builder-frontend
+node tools/team.mjs --team pbmobile release 001 builder-frontend
 
 # 4. Log progress with strict boundary enforcement
-node tools/team.mjs log 001 builder-frontend done --note "Added button" --files "app/components/theme.tsx"
+node tools/team.mjs --team pbmobile log 001 builder-frontend done --note "Added button" --files "app/components/theme.tsx"
 # Reviewer logging verdict:
-node tools/team.mjs log 001 reviewer done --verdict PASS --note "All specs satisfied"
+node tools/team.mjs --team pbmobile log 001 reviewer done --verdict PASS --note "All specs satisfied"
 
 # 5. Peer messaging (Talk directly to another agent)
-node tools/team.mjs send builder-frontend builder-backend "Need response type for /api/user"
-node tools/team.mjs inbox builder-backend
+node tools/team.mjs --team pbmobile send builder-frontend builder-backend "Need response type for /api/user"
+node tools/team.mjs --team pbmobile inbox builder-backend
 
 # 6. Continuous Learning (Playbook)
-node tools/team.mjs add-lesson auth "Use httpOnly cookies for session JWT" --forbid "localStorage"
-node tools/team.mjs learn auth
+node tools/team.mjs --team pbmobile add-lesson auth "Use httpOnly cookies for session JWT" --forbid "localStorage"
+node tools/team.mjs --team pbmobile learn auth
 
-# 7. Check global team status in 5 lines
-node tools/team.mjs status
+# 7. Check team status in 5 lines
+node tools/team.mjs --team pbmobile status
+node tools/team.mjs --team pbmobile ls
 ```
 
 ---
@@ -141,27 +176,26 @@ node tools/team.mjs status
 
 ```
 agent-team/
-├── agents/             # Master role definitions (.md)
-│   ├── orchestrator.md
-│   ├── builder-frontend.md
-│   ├── builder-backend.md
-│   ├── reviewer.md
-│   ├── qa.md
-│   └── runner.md
+├── teams/
+│   └── web-team/           # one directory per team; the name is the team id
+│       ├── team.json       # name, workspace, status (draft | ready)
+│       ├── agents/         # role definitions (.md) — the roster
+│       ├── AGENTS.md       # this team's contract
+│       └── state/
+│           ├── events.jsonl    # append-only state & messaging log
+│           ├── learnings.jsonl # machine-readable past human lessons
+│           ├── locks/          # atomic task directories (created on demand)
+│           └── tasks/          # task specs (JSON & Markdown)
 ├── scripts/
-│   ├── install.ps1     # Copies role files to ~/.claude/agents/
-│   └── seat-up.ps1     # Starts herdr workspace with all seats
-├── state/
-│   ├── AGENTS.md       # Central team contract
-│   ├── CONTRACT.md     # Feature-level API contracts
-│   ├── events.jsonl    # Append-only state & messaging log
-│   ├── learnings.jsonl # Machine-readable past human lessons
-│   ├── locks/          # Atomic task directories
-│   └── tasks/          # Task specs (JSON & Markdown)
+│   ├── install.ps1     # Wrapper over `team install`; copies to ~/.claude/agents/
+│   └── seat-up.ps1     # -Team <name>; doctor gate, then start the herdr workspace
 ├── tools/
-│   └── team.mjs        # Core state, boundary guard & communication engine
-└── workspace/          # Your application repositories (ignored by git)
+│   └── team.mjs        # teams, state, boundary guard & communication engine
+└── workspace/          # example project repos (git-ignored)
 ```
+
+Adding a team does not change this repo's code: `team new` creates `teams/<name>/`,
+and `seat-up.ps1` seats whatever role files are in its `agents/`.
 
 ---
 

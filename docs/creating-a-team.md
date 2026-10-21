@@ -1,21 +1,22 @@
 # Creating your own team
 
-This repository ships one example team. Nothing in the tooling is tied to it —
-not the number of seats, not the role names, not the domain. This is how to
-build a different one.
+This repository hosts many teams. Nothing in the tooling is tied to the one that
+ships with it — not the number of seats, not the role names, not the domain.
+This is how to build a new one.
 
-## The three pieces of a team
+## The four pieces of a team
 
 | Piece | File | What it decides |
 |---|---|---|
-| **Who exists** | `agents/<role>.md` | one file per seat — its prompt and its tools |
-| **How they behave** | `state/AGENTS.md` | the contract every seat reads first |
-| **How they start** | `scripts/seat-up.ps1` | reads `agents/`, seats one pane per file |
+| **Who exists** | `teams/<name>/agents/<role>.md` | one file per seat — its prompt and its tools |
+| **How they behave** | `teams/<name>/AGENTS.md` | the contract every seat reads first |
+| **What it owns** | `teams/<name>/team.json` | the project repo, and whether the team is usable |
+| **How they start** | `scripts/seat-up.ps1 -Team <name>` | reads `agents/`, seats one pane per file |
 
 There is no roster list to keep in sync. **Add a role file and the seat exists.
 Delete one and it is gone.** `seat-up.ps1` derives the team from `agents/`.
 
-## Build a team in four steps
+## Build a team in five steps
 
 ### 1. Decide the roles
 
@@ -37,9 +38,23 @@ Everything after that is optional and should be added when the work demands it:
 
 Two seats is a legitimate team. Five is not a target.
 
-### 2. Write each role file
+### 2. Create the team directory
 
-Create `agents/<role>.md`. The `name:` field must match the filename.
+```powershell
+node tools/team.mjs team new pbmobile ../pbmobile
+```
+
+This creates an empty team — `team.json`, `agents/`, and an empty `state/` — and
+nothing else. It is `draft`: it cannot be seated until it passes `doctor`.
+
+There is no template and no inheritance: `agents/` starts empty and you write
+each role file yourself. Copying one from another team's `agents/` (or from this
+repo's git history) is fine — it is just a file.
+
+### 3. Write each role file
+
+Create `teams/<name>/agents/<role>.md`. The `name:` field must match the
+filename; the installer adds the team prefix.
 
 ```markdown
 ---
@@ -53,71 +68,102 @@ effort: low
 
 <What this seat owns, in the imperative.>
 
-**Read `state/AGENTS.md` first, every session.**
+**Read `teams/<team>/AGENTS.md` first, every session.**
 
 ## While working
 - ...
 
 ## Finishing
-node tools/team.mjs log <task-id> <role> done --note "..." --files "a.ts"
-node tools/team.mjs release <task-id> <role>
+node tools/team.mjs --team <team> log <task-id> <role> done --note "..." --files "a.ts"
+node tools/team.mjs --team <team> release <task-id> <role>
 ```
+
+Write `<team>` where the team name belongs. `team install` substitutes it, so the
+installed copy reads `--team pbmobile` and `herdr agent prompt pbmobile-<seat>`.
 
 Notes that matter:
 
 - **Use the role's own name in the log commands.** Events are keyed by agent, and
   a mismatch makes the history unreadable.
+- **Names are prefixed at install.** A team's `builder` is installed as
+  `pbmobile-builder`, and that is the herdr address and the `--agent` name. State
+  inside the team stays unprefixed.
 - **`model: inherit`** keeps the seat on whatever model the session uses. Set a
   specific model only with a reason — a reviewer on a cheap model is a real
   trade, and a builder on one usually is not.
 - **Leave `tools:` out** to grant every tool. An empty `tools:` grants *none*.
   See [capability-scoping.md](capability-scoping.md) before narrowing it.
 
-### 3. Update the contract
+### 4. Write the contract and point at the project
 
-Edit `state/AGENTS.md`:
+`teams/<name>/AGENTS.md` is the team's contract — the shared truth every seat
+reads first. Start from another team's and edit it; the Roster table inside it
+must name the roles you created.
 
-1. The **Roster** table — one row per role you created.
-2. The **Orchestrator hard rules** — if you renamed or dropped the orchestrator,
-   this section must move to whichever seat plays that part, or be deleted.
-3. The **Builder–reviewer pair** section — keep it if you kept both roles. If you
-   dropped the reviewer, say explicitly what replaces the check, rather than
-   leaving a rule that names a seat that does not exist.
+`team.json` says which project repository the team owns. One team owns one repo,
+relative to this repository's root; `../something` points outside it:
 
-The contract is what stops two seats doing the same work or nobody doing it. A
-contract that names seats you deleted is worse than no contract.
-
-### 4. Install and seat
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/install.ps1
-powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -DryRun   # see the plan
-powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1
+```json
+{
+  "name": "pbmobile",
+  "workspace": "../pbmobile",
+  "status": "draft",
+  "createdAt": "2026-10-21T09:00:00Z"
+}
 ```
 
-`-DryRun` prints the exact commands without starting anything. Use it the first
-time, and after any roster change.
+The workspace must exist and be a git repository before the team can be `ready`.
+
+### 5. Check, install, seat
+
+```powershell
+node tools/team.mjs team doctor pbmobile                           # must pass
+powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -Team pbmobile
+powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -Team pbmobile -DryRun
+powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -Team pbmobile
+```
+
+`doctor` prints every failure in one pass and only sets `status: ready` when the
+team is usable. `-DryRun` prints the exact commands without starting anything.
+Use it the first time, and after any roster change.
+
+`install.ps1` refuses to overwrite a file in `~/.claude/agents/` that it did not
+write for this team, so a team can never clobber another team's seat or a
+personal agent of yours.
+
+## Teams never touch each other
+
+| Shared thing | How it is kept separate |
+|---|---|
+| Event log, tasks, locks, lessons | each team has its own `teams/<name>/state/` |
+| Role files | installed as `<team>-<role>.md` in `~/.claude/agents/` |
+| herdr seats and workspaces | agent name `<team>-<role>`, workspace labelled `<team>` |
+| Every command | `--team <name>` is mandatory; there is no default |
+
+Forgetting `--team` is an error, never a guess at which team you meant.
 
 ## Worked example: a two-seat pair
 
 The smallest useful team. No orchestrator — you talk to the builder directly.
 
 ```
-agents/builder.md     implements, claims, logs, releases
-agents/reviewer.md    audits the logged files, returns PASS or FAIL
-state/AGENTS.md       roster has two rows; drop the orchestrator hard rules
+teams/design/agents/builder.md    implements, claims, logs, releases
+teams/design/agents/reviewer.md   audits the logged files, returns PASS or FAIL
+teams/design/AGENTS.md            roster has two rows; no orchestrator rules
 ```
 
 ```powershell
-scripts\seat-up.ps1 -DryRun
-# team: builder, reviewer
+node tools/team.mjs team doctor design
+node tools/team.mjs team install design
+scripts\seat-up.ps1 -Team design -DryRun
+# team: design (builder, reviewer)
 ```
 
 Then dispatch by hand:
 
 ```sh
-herdr agent prompt builder "task 001 - <what to build>"
-herdr agent prompt reviewer "review task 001 - files are in the log"
+herdr agent prompt design-builder "task 001 - <what to build>"
+herdr agent prompt design-reviewer "review task 001 - files are in the log"
 ```
 
 The builder still claims and logs through `tools/team.mjs`, so ownership and
@@ -141,10 +187,24 @@ Two builders is the interesting case: give **each its own task file** and a
 non-overlapping file boundary, or they will edit the same files and the reviewer
 will fail both. The contract's scope rule is what makes this safe.
 
+## Moving a single-team repository to this layout
+
+If you are upgrading a repository that still has `state/` and `agents/` at its
+root, one command migrates it and rewrites the prose to the new paths:
+
+```sh
+git status                       # must be clean under state/ and agents/
+node tools/team.mjs team import-legacy web-team ../my-app
+node tools/team.mjs team doctor web-team
+```
+
+The migration refuses to run on a dirty tree or a second time; `git revert` is
+the way back.
+
 ## Changing the multiplexer
 
 Only two places assume herdr: the `herdr agent prompt` / `herdr agent read`
-commands in `state/AGENTS.md`, and the launch calls in `scripts/seat-up.ps1`.
+commands in the team contract, and the launch calls in `scripts/seat-up.ps1`.
 Replace those with your multiplexer's equivalents — send text to a pane, read a
 pane, start a process in a pane — and the rest holds. The state layer never
 touches the multiplexer; it is pure filesystem.
@@ -154,17 +214,19 @@ touches the multiplexer; it is pure filesystem.
 The state layer deliberately has no queue: work is dispatched by message and
 tracked by claim plus event log. If you later want OpenRig-style `create / claim
 / handoff` with a waiting state, add it as a second command group in
-`tools/team.mjs` writing to the same `events.jsonl`, rather than a second log.
-One log that can be grepped beats two that must be reconciled.
+`tools/team.mjs` writing to the same per-team `events.jsonl`, rather than a
+second log. One log that can be grepped beats two that must be reconciled.
 
 ## Pitfalls
 
 - **A role file that is not installed.** `seat-up.ps1` fails loudly with the seat
-  name instead of starting a half-team. The fix is always `install.ps1`.
-- **`name:` not matching the filename.** `herdr agent start <role> --agent <role>`
-  looks up the file by that name; a mismatch seats the wrong prompt.
-- **A role file with no `state/AGENTS.md` read step.** The seat will be
-  plausible and wrong — it will do the work but not claim it, so two seats can
-  quietly duplicate an effort.
+  name instead of starting a half-team. The fix is `install.ps1 -Team <name>`.
+- **`name:` not matching the filename.** After install, the name is
+  `<team>-<role>`; a mismatch seats the wrong prompt.
+- **A role file with no contract read step.** The seat will be plausible and
+  wrong — it will do the work but not claim it, so two seats can quietly
+  duplicate an effort.
+- **A workspace that is not a git repository.** `doctor` refuses to make the team
+  `ready`, and `seat-up` refuses to start it.
 - **Adding seats before the work needs them.** Every seat costs context on every
   turn. Split late.

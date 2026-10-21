@@ -1,12 +1,12 @@
 node_modules/
 *.log
 logs/
-state/locks/
+teams/*/state/locks/
 .claude/settings.local.json
 
 # project workspaces & experiments — never publish
 workspace/
 .opencode/
 .claude/
-state/tasks/perm-test*.md
+teams/*/state/tasks/perm-test*.md
 

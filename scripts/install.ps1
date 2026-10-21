@@ -9,9 +9,7 @@ param([string]$Team, [switch]$Force)
 $Repo = Split-Path -Parent $PSScriptRoot
 $nodeArgs = @('tools/team.mjs', 'team', 'install')
 if ($Team) { $nodeArgs += $Team }
-if ($Force) {
-    Write-Host "note: -Force is handled by team.mjs; re-running install refreshes owned files." -ForegroundColor DarkGray
-}
+if ($Force) { $nodeArgs += '--force' }
 
 Push-Location $Repo
 try {

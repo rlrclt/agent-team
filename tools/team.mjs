@@ -544,8 +544,9 @@ function installTeam(name, dest, force, root = TEAMS) {
     }
 
     // Name first, then the <team> token everywhere else.
-    text = text.replace(/^---\n([\s\S]*?)\n---/, (all, fm) =>
-      `---\n${fm.replace(/^name:\s*\S+/m, `name: ${name}-${role}`)}\n---`);
+    // \r?\n: git checks role files out with CRLF on Windows.
+    text = text.replace(/^---\r?\n[\s\S]*?\r?\n---/, (fm) =>
+      fm.replace(/^name:\s*\S+/m, `name: ${name}-${role}`));
     text = text.split('<team>').join(name);
     fs.writeFileSync(target, MARKER(name) + '\n' + text);
     copied++;
@@ -557,24 +558,36 @@ function installTeam(name, dest, force, root = TEAMS) {
   return { copied, skipped, refused };
 }
 
-function teamInstallCmd(names, dest) {
+function positional(argv) {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (/^--\w/.test(argv[i])) {
+      if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) i++;
+      continue;
+    }
+    out.push(argv[i]);
+  }
+  return out;
+}
+
+function teamInstallCmd(names, dest, force) {
   const target = dest || path.join(os.homedir(), '.claude', 'agents');
   const teams = names.length ? names : teamNames();
   if (teams.length === 0) die('no teams to install');
-  for (const n of teams) installTeam(n, target, false);
+  for (const n of teams) installTeam(n, target, force);
 }
 
 // Pure and idempotent: applying it to already-rewritten text changes nothing.
 function rewriteLegacyText(text, name) {
   let out = text;
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // state/... => teams/<name>/state/... but never a second time.
-  const pathRule = (p) => new RegExp(`(?<!teams\\/${esc(name)}\\/)${esc(p)}`, 'g');
+  const once = (re) => new RegExp(re, 'g');
 
-  out = out.replace(pathRule('state/AGENTS.md'), `teams/${name}/AGENTS.md`);
-  for (const p of ['state/tasks', 'state/learnings.jsonl', 'state/events.jsonl', 'state/LEARNINGS.md']) {
-    out = out.replace(pathRule(p), `teams/${name}/${p}`);
-  }
+  // The two top-level prose files move beside the team, not inside state/.
+  out = out.replace(once(`(?<!teams\\/${esc(name)}\\/)state\\/AGENTS\\.md`), `teams/${name}/AGENTS.md`);
+  out = out.replace(once(`(?<!teams\\/${esc(name)}\\/)state\\/CONTRACT\\.md`), `teams/${name}/CONTRACT.md`);
+  // Everything else under state/ keeps its shape, one level deeper.
+  out = out.replace(once(`(?<!teams\\/${esc(name)}\\/)state\\/`), `teams/${name}/state/`);
 
   // Every team.mjs command gains --team, unless it already has one.
   out = out.replace(/node tools\/team\.mjs (?!team )(?!--team )(?!selftest)([a-z][\w-]*)/g,
@@ -585,6 +598,9 @@ function rewriteLegacyText(text, name) {
     out = out.replace(new RegExp(`herdr agent prompt (?<!${esc(name)}-)${esc(role)}(?!-)`, 'g'),
       `herdr agent prompt ${name}-${role}`);
   }
+  // A placeholder seat needs the prefix too. Runs after the <team> token is
+  // already substituted in migrated text, so it uses the team name directly.
+  out = out.replace(/herdr agent prompt <seat>/g, `herdr agent prompt ${name}-<seat>`);
 
   // Placeholder tokens left in role files.
   out = out.split('<team>').join(name);
@@ -614,10 +630,12 @@ function importLegacy(name, workspace) {
   fs.mkdirSync(path.join(target, 'state'), { recursive: true });
   moveDir(legacyAgents, path.join(target, 'agents'));
 
-  const contractFrom = path.join(legacyState, 'AGENTS.md');
-  if (fs.existsSync(contractFrom)) {
-    fs.writeFileSync(path.join(target, 'AGENTS.md'), fs.readFileSync(contractFrom, 'utf8'));
-    fs.rmSync(contractFrom);
+  // The two prose files move beside the team, not inside state/.
+  for (const doc of ['AGENTS.md', 'CONTRACT.md']) {
+    const from = path.join(legacyState, doc);
+    if (!fs.existsSync(from)) continue;
+    fs.writeFileSync(path.join(target, doc), fs.readFileSync(from, 'utf8'));
+    fs.rmSync(from);
   }
 
   for (const item of fs.readdirSync(legacyState)) {
@@ -628,9 +646,9 @@ function importLegacy(name, workspace) {
   fs.rmSync(legacyState, { recursive: true, force: true });
 
   // Rewrite prose in the moved files.
-  const contract = path.join(target, 'AGENTS.md');
-  if (fs.existsSync(contract)) {
-    fs.writeFileSync(contract, rewriteLegacyText(fs.readFileSync(contract, 'utf8'), name));
+  for (const doc of ['AGENTS.md', 'CONTRACT.md']) {
+    const p = path.join(target, doc);
+    if (fs.existsSync(p)) fs.writeFileSync(p, rewriteLegacyText(fs.readFileSync(p, 'utf8'), name));
   }
   for (const role of rolesOf(target)) {
     const f = path.join(target, 'agents', `${role}.md`);
@@ -681,11 +699,11 @@ function teamCmd(args) {
   }
   else if (sub === 'install') {
     const flags = parseFlags(a);
-    teamInstallCmd(a.filter((x) => !x.startsWith('--')), flags.dest);
+    teamInstallCmd(positional(a), flags.dest, !!flags.force);
   }
   else if (sub === 'import-legacy') {
-    const positional = a.filter((x) => !x.startsWith('--'));
-    importLegacy(positional[0], positional[1] || 'workspace');
+    const a2 = positional(a);
+    importLegacy(a2[0], a2[1] || 'workspace');
   }
   else die('usage: team.mjs team list|new <name> <workspace>|info <name>|doctor <name>|install [<name>]|import-legacy <name> <workspace>');
 }
@@ -997,6 +1015,14 @@ function selftest() {
   assert(out.includes('--team alpha'), '<team> token not substituted');
   assert(!out.includes('<team>'), 'token left unsubstituted');
 
+  // a CRLF role file (git on Windows) must be prefixed too
+  fs.writeFileSync(path.join(sb4, 'alpha', 'agents', 'qa.md'),
+    '---\r\nname: qa\r\ndescription: x\r\n---\r\nbody\r\n');
+  installTeam('alpha', dest, false, sb4);
+  const crlfOut = fs.readFileSync(path.join(dest, 'alpha-qa.md'), 'utf8');
+  assert(crlfOut.includes('name: alpha-qa'), 'CRLF frontmatter name not prefixed');
+  assert(!crlfOut.includes('name: qa\r'), 'CRLF frontmatter left unprefixed');
+
   // a foreign file at the same target is refused, even with force
   fs.writeFileSync(path.join(dest, 'alpha-builder.md'), 'someone else\n');
   quiet();
@@ -1012,9 +1038,11 @@ function selftest() {
   installTeam('alpha', dest, false, sb4);
   fs.writeFileSync(path.join(dest, 'alpha-builder.md'), '<!-- agent-team: alpha -->\nstale\n');
   const res2 = installTeam('alpha', dest, true, sb4);
-  assert(res2.copied === 1, '-Force did not overwrite own prefix');
+  assert(res2.copied === 2, '-Force did not overwrite own prefix');
   assert(fs.readFileSync(path.join(dest, 'alpha-builder.md'), 'utf8').includes('name: alpha-builder'),
     'force left the file stale');
+  assert(fs.readFileSync(path.join(dest, 'alpha-qa.md'), 'utf8').includes('name: alpha-qa'),
+    'force did not refresh the skipped file');
   fs.rmSync(dest, { recursive: true, force: true });
   rmSandbox(sb4);
 
@@ -1030,6 +1058,8 @@ function selftest() {
   assert(once.includes('--team web-team claim'), 'command not team-scoped');
   assert(!once.includes('team.mjs --team web-team --team'), 'command rewritten twice');
   assert(once.includes('herdr agent prompt web-team-orchestrator'), 'herdr address not prefixed');
+  assert(rewriteLegacyText('herdr agent prompt <seat> "x"', 'web-team')
+    .includes('herdr agent prompt web-team-<seat>'), 'seat placeholder not prefixed');
   assert(rewriteLegacyText(once, 'web-team') === once, 'rewrite is not idempotent');
   fs.rmSync(path.join(requireTeam().locks, id), { recursive: true, force: true });
   TEAM = savedTEAM;
