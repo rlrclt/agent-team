@@ -997,25 +997,78 @@ function dashboardHtml(teamName) {
 <title>muster &bull; ${teamName}</title>
 <style>
 :root {
-  --bg: #090d16;
+  --bg: #070a12;
+  --sidebar: #0b111e;
   --surface: #0f172a;
+  --surface-alt: #131c2e;
   --border: #1e293b;
   --text: #e2e8f0;
   --muted: #64748b;
   --cyan: #06b6d4;
   --cyan-dim: #083344;
   --cyan-glow: #22d3ee;
+  --green: #10b981;
+  --amber: #f59e0b;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Sarabun", "Noto Sans Thai", sans-serif; background: var(--bg); color: var(--text); padding: 24px; font-size: 13px; line-height: 1.5; }
-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 24px; }
-.brand { display: flex; align-items: center; gap: 12px; }
+body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Sarabun", "Noto Sans Thai", sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; font-size: 13px; line-height: 1.5; }
+
+/* Layout */
+.layout { display: flex; width: 100vw; height: 100vh; }
+.sidebar { width: 280px; flex-shrink: 0; background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; padding: 18px 16px; }
+.main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+
+/* Sidebar Header */
+.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
 .logo { font-size: 18px; font-weight: 700; color: var(--cyan); letter-spacing: -0.5px; }
 .badge { background: var(--cyan-dim); color: var(--cyan-glow); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid var(--cyan); }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: pulse 2s infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 24px; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
+
+.side-section { margin-bottom: 22px; }
+.side-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 8px; display: flex; justify-content: space-between; }
+.meta-item { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #131c2e; }
+.meta-label { color: var(--muted); }
+.meta-val { color: var(--text); font-weight: 600; font-family: ui-monospace, monospace; }
+
+/* Tree/List in sidebar */
+.seat-tree-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 4px; margin-bottom: 4px; background: #0c121e; border: 1px solid #152033; font-size: 12px; }
+.seat-tree-left { display: flex; align-items: center; gap: 6px; }
+.status-indicator { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.status-indicator.busy { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+
+/* Top Nav */
+.top-nav { height: 52px; flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; }
+.tab-group { display: flex; gap: 6px; }
+.tab-btn { background: transparent; border: 1px solid transparent; color: var(--muted); padding: 6px 14px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.tab-btn:hover { color: var(--text); background: var(--surface-alt); }
+.tab-btn.active { color: var(--cyan-glow); background: var(--cyan-dim); border-color: var(--cyan); box-shadow: 0 0 8px rgba(6, 182, 212, 0.25); }
+
+/* Tab Panes */
+.pane-container { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; }
+.tab-pane { display: none; height: 100%; flex-direction: column; }
+.tab-pane.active { display: flex; }
+
+/* Graph View */
+.graph-viewport { position: relative; width: 100%; height: 540px; background: #080c14; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; box-shadow: inset 0 0 30px rgba(0,0,0,0.5); }
+#graph-canvas { width: 100%; height: 100%; }
+.graph-node { position: absolute; width: 150px; background: var(--surface); border: 1px solid var(--cyan); border-radius: 6px; padding: 10px; box-shadow: 0 0 12px rgba(6, 182, 212, 0.2); transform: translate(-50%, -50%); transition: transform 0.2s, box-shadow 0.2s; pointer-events: auto; }
+.graph-node:hover { box-shadow: 0 0 18px var(--cyan); transform: translate(-50%, -54%); }
+.node-title { font-size: 12px; font-weight: 700; color: var(--cyan-glow); margin-bottom: 4px; word-break: break-all; }
+.node-sub { font-size: 10px; color: var(--muted); }
+
+/* SVG Flow lines with animated glowing pulses */
+.flow-line { fill: none; stroke: var(--cyan); stroke-width: 2; stroke-dasharray: 8 5; animation: pulseFlow 1.5s linear infinite; filter: drop-shadow(0 0 4px var(--cyan-glow)); }
+.flow-line.reports { stroke: #a855f7; stroke-dasharray: 6 4; animation: pulseFlow 1.8s linear infinite; filter: drop-shadow(0 0 4px #c084fc); }
+.flow-line.reviews { stroke: #38bdf8; stroke-dasharray: 7 4; animation: pulseFlow 1.4s linear infinite; filter: drop-shadow(0 0 4px #7dd3fc); }
+@keyframes pulseFlow {
+  from { stroke-dashoffset: 26; }
+  to { stroke-dashoffset: 0; }
+}
+
+/* Tables and Cards */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 20px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; margin-bottom: 20px; }
 .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
 .card-title span.count { color: var(--cyan); }
 .sub { font-size: 10px; color: var(--muted); font-weight: normal; margin-left: 4px; text-transform: none; }
@@ -1023,56 +1076,228 @@ table { width: 100%; border-collapse: collapse; text-align: left; }
 th { color: var(--muted); font-size: 11px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 td { padding: 6px 8px; border-bottom: 1px solid #131c2e; }
 .role { font-weight: 600; color: var(--text); }
-.lock-tag { color: #f59e0b; }
+.lock-tag { color: var(--amber); }
 .msg-tag { color: var(--cyan); }
 .edge-kind { color: var(--cyan-glow); font-size: 11px; font-family: ui-monospace, monospace; }
-.events-stream { max-height: 300px; overflow-y: auto; font-size: 12px; display: flex; flex-direction: column-reverse; gap: 4px; }
-.event-row { padding: 4px 8px; border-radius: 4px; background: #0c121e; display: flex; gap: 10px; font-family: ui-monospace, monospace; }
+
+/* Feed / Events */
+.events-stream { max-height: 480px; overflow-y: auto; font-size: 12px; display: flex; flex-direction: column-reverse; gap: 4px; }
+.event-row { padding: 6px 10px; border-radius: 4px; background: #0c121e; display: flex; gap: 10px; font-family: ui-monospace, monospace; border: 1px solid #141c2c; }
 .event-ts { color: var(--muted); }
 .event-actor { color: var(--cyan-glow); font-weight: 600; }
 .event-type { color: var(--text); }
 </style>
 </head>
 <body>
-<header>
-  <div class="brand">
-    <div class="live-dot"></div>
-    <div class="logo">muster</div>
-    <div class="badge">${teamName}</div>
-  </div>
-  <div id="conn" style="color:var(--muted);font-size:11px;">กำลังเชื่อมต่อ... / connecting...</div>
-</header>
-<div class="grid">
-  <div class="card">
-    <div class="card-title">ตำแหน่งการทำงาน <span class="sub">/ Seats</span> <span class="count" id="seat-count">0</span></div>
-    <table>
-      <thead><tr><th>บทบาท <span class="sub">/ Role</span></th><th>การถือล็อค <span class="sub">/ Lock</span></th><th>ข้อความรอ <span class="sub">/ Waiting</span></th><th>เหตุการณ์ล่าสุด <span class="sub">/ Last</span></th></tr></thead>
-      <tbody id="seats-body"></tbody>
-    </table>
-  </div>
-  <div class="card">
-    <div class="card-title">รายการงาน <span class="sub">/ Tasks</span> <span class="count" id="task-count">0</span></div>
-    <table>
-      <thead><tr><th>รหัสงาน <span class="sub">/ Task</span></th><th>สถานะ <span class="sub">/ Status</span></th><th>เหตุการณ์ล่าสุด <span class="sub">/ Last</span></th></tr></thead>
-      <tbody id="tasks-body"></tbody>
-    </table>
-  </div>
-  <div class="card">
-    <div class="card-title">โครงสร้างเส้นทางทีม <span class="sub">/ Edges Topology</span> <span class="count" id="edge-count">0</span></div>
-    <table>
-      <thead><tr><th>ต้นทาง <span class="sub">/ From</span></th><th>ความสัมพันธ์ <span class="sub">/ Kind</span></th><th>ปลายทาง <span class="sub">/ To</span></th></tr></thead>
-      <tbody id="edges-body"></tbody>
-    </table>
-  </div>
+<div class="layout">
+  <!-- Explorer Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="live-dot"></div>
+      <div class="logo">muster</div>
+      <div class="badge">${teamName}</div>
+    </div>
+
+    <div class="side-section">
+      <div class="side-title">สำรวจทีม <span class="sub">/ Explorer</span></div>
+      <div class="meta-item"><span class="meta-label">ทีม / Team:</span><span class="meta-val">${teamName}</span></div>
+      <div class="meta-item"><span class="meta-label">พื้นที่ทำงาน:</span><span class="meta-val" id="side-workspace">.</span></div>
+      <div class="meta-item"><span class="meta-label">สถานะ / Status:</span><span class="meta-val" id="side-status" style="color:var(--green)">ready</span></div>
+    </div>
+
+    <div class="side-section">
+      <div class="side-title">ตำแหน่งทั้งหมด <span class="sub">/ Seats</span></div>
+      <div id="side-seats-list"></div>
+    </div>
+
+    <div class="side-section">
+      <div class="side-title">การล็อคที่ถือครอง <span class="sub">/ Active Locks</span></div>
+      <div id="side-locks-list" style="font-size:12px;color:var(--muted)">ไม่มีการล็อค</div>
+    </div>
+  </aside>
+
+  <!-- Main Content Area -->
+  <main class="main-content">
+    <nav class="top-nav">
+      <div class="tab-group">
+        <button class="tab-btn active" id="btn-graph" onclick="switchTab('graph')">[GRAPH] <span class="sub">ผังเส้นทาง</span></button>
+        <button class="tab-btn" id="btn-table" onclick="switchTab('table')">[TABLE] <span class="sub">ตาราง</span></button>
+        <button class="tab-btn" id="btn-feed" onclick="switchTab('feed')">[FEED] <span class="sub">เหตุการณ์</span></button>
+        <button class="tab-btn" id="btn-health" onclick="switchTab('health')">[HEALTH] <span class="sub">สุขภาพระบบ</span></button>
+      </div>
+      <div id="conn" style="color:var(--muted);font-size:11px;">กำลังเชื่อมต่อ... / connecting...</div>
+    </nav>
+
+    <div class="pane-container">
+      <!-- GRAPH TAB -->
+      <div class="tab-pane active" id="pane-graph">
+        <div class="graph-viewport">
+          <svg id="graph-canvas">
+            <defs>
+              <filter id="cyan-glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+              <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 1 L 10 5 L 0 9 z" fill="var(--cyan)" />
+              </marker>
+              <marker id="arrow-purple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 1 L 10 5 L 0 9 z" fill="#a855f7" />
+              </marker>
+              <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8" />
+              </marker>
+            </defs>
+            <g id="svg-edges"></g>
+          </svg>
+          <div id="graph-nodes"></div>
+        </div>
+      </div>
+
+      <!-- TABLE TAB -->
+      <div class="tab-pane" id="pane-table">
+        <div class="grid">
+          <div class="card">
+            <div class="card-title">ตำแหน่งการทำงาน <span class="sub">/ Seats</span> <span class="count" id="seat-count">0</span></div>
+            <table>
+              <thead><tr><th>บทบาท <span class="sub">/ Role</span></th><th>การถือล็อค <span class="sub">/ Lock</span></th><th>ข้อความรอ <span class="sub">/ Waiting</span></th><th>เหตุการณ์ล่าสุด <span class="sub">/ Last</span></th></tr></thead>
+              <tbody id="seats-body"></tbody>
+            </table>
+          </div>
+          <div class="card">
+            <div class="card-title">รายการงาน <span class="sub">/ Tasks</span> <span class="count" id="task-count">0</span></div>
+            <table>
+              <thead><tr><th>รหัสงาน <span class="sub">/ Task</span></th><th>สถานะ <span class="sub">/ Status</span></th><th>เหตุการณ์ล่าสุด <span class="sub">/ Last</span></th></tr></thead>
+              <tbody id="tasks-body"></tbody>
+            </table>
+          </div>
+          <div class="card">
+            <div class="card-title">โครงสร้างเส้นทางทีม <span class="sub">/ Edges Topology</span> <span class="count" id="edge-count">0</span></div>
+            <table>
+              <thead><tr><th>ต้นทาง <span class="sub">/ From</span></th><th>ความสัมพันธ์ <span class="sub">/ Kind</span></th><th>ปลายทาง <span class="sub">/ To</span></th></tr></thead>
+              <tbody id="edges-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- FEED TAB -->
+      <div class="tab-pane" id="pane-feed">
+        <div class="card" style="height:100%;margin-bottom:0;display:flex;flex-direction:column;">
+          <div class="card-title">บันทึกเหตุการณ์ล่าสุด <span class="sub">/ Recent Events</span></div>
+          <div class="events-stream" id="events-body" style="flex:1;"></div>
+        </div>
+      </div>
+
+      <!-- HEALTH TAB -->
+      <div class="tab-pane" id="pane-health">
+        <div class="grid">
+          <div class="card">
+            <div class="card-title">สุขภาพระบบ <span class="sub">/ Health</span></div>
+            <div class="meta-item"><span class="meta-label">สถานะทีม / Team Status:</span><span class="meta-val" style="color:var(--green)" id="health-status">ready</span></div>
+            <div class="meta-item"><span class="meta-label">จำนวนการล็อค / Active Locks:</span><span class="meta-val" id="health-locks">0</span></div>
+            <div class="meta-item"><span class="meta-label">จำนวนตำแหน่ง / Total Seats:</span><span class="meta-val" id="health-seats">0</span></div>
+            <div class="meta-item"><span class="meta-label">จำนวนงานทั้งหมด / Total Tasks:</span><span class="meta-val" id="health-tasks">0</span></div>
+            <div class="meta-item"><span class="meta-label">เส้นทางการสื่อสาร / Edges:</span><span class="meta-val" id="health-edges">0</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
 </div>
-<div class="card">
-  <div class="card-title">บันทึกเหตุการณ์ล่าสุด <span class="sub">/ Recent Events</span></div>
-  <div class="events-stream" id="events-body"></div>
-</div>
+
 <script>
+let lastState = null;
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  const btn = document.getElementById('btn-' + name);
+  const pane = document.getElementById('pane-' + name);
+  if (btn) btn.classList.add('active');
+  if (pane) pane.classList.add('active');
+  if (name === 'graph' && lastState) renderGraph(lastState);
+}
+
+function renderGraph(s) {
+  const container = document.querySelector('.graph-viewport');
+  const nodesDiv = document.getElementById('graph-nodes');
+  const svgEdges = document.getElementById('svg-edges');
+  if (!container || !nodesDiv || !svgEdges) return;
+
+  const w = container.clientWidth || 800;
+  const h = container.clientHeight || 500;
+  const roles = s.seats.map(st => st.role);
+  const positions = {};
+
+  const orchRole = roles.find(r => r.includes('orchestrator')) || roles[0];
+  const otherRoles = roles.filter(r => r !== orchRole);
+
+  if (orchRole) {
+    positions[orchRole] = { x: w / 2, y: 90 };
+  }
+  const count = otherRoles.length;
+  otherRoles.forEach((role, i) => {
+    const x = count > 1 ? (w * 0.15 + (i * (w * 0.7) / (count - 1))) : (w / 2);
+    const y = 380;
+    positions[role] = { x, y };
+  });
+
+  // Render SVG Edges with flow lines
+  let svgPaths = '';
+  (s.edges || []).forEach(e => {
+    const fromPos = positions[e.from];
+    const toPos = positions[e.to];
+    if (fromPos && toPos) {
+      const cls = e.kind === 'reports_to' ? 'flow-line reports' : (e.kind === 'reviews' ? 'flow-line reviews' : 'flow-line');
+      const marker = e.kind === 'reports_to' ? 'url(#arrow-purple)' : (e.kind === 'reviews' ? 'url(#arrow-blue)' : 'url(#arrow)');
+      const cx1 = fromPos.x;
+      const cy1 = (fromPos.y + toPos.y) / 2;
+      const cx2 = toPos.x;
+      const cy2 = (fromPos.y + toPos.y) / 2;
+      const d = 'M ' + fromPos.x + ' ' + fromPos.y + ' C ' + cx1 + ' ' + cy1 + ', ' + cx2 + ' ' + cy2 + ', ' + toPos.x + ' ' + toPos.y;
+      svgPaths += '<path d="' + d + '" class="' + cls + '" marker-end="' + marker + '" />';
+    }
+  });
+  svgEdges.innerHTML = svgPaths;
+
+  // Render Node DOM elements
+  nodesDiv.innerHTML = roles.map(r => {
+    const pos = positions[r] || { x: w / 2, y: h / 2 };
+    const st = s.seats.find(x => x.role === r) || {};
+    const hasLock = st.lock && st.lock !== '-';
+    return '<div class="graph-node" style="left:' + pos.x + 'px;top:' + pos.y + 'px;">' +
+      '<div class="node-title">' + r + '</div>' +
+      '<div class="node-sub">' + (hasLock ? '<span class="lock-tag">HELD (' + st.lock + ')</span>' : '<span style="color:var(--green)">FREE</span>') + '</div>' +
+      '<div class="node-sub">waiting: <span style="color:var(--cyan)">' + (st.waiting || 0) + '</span></div>' +
+      '</div>';
+  }).join('');
+}
+
 function render(s) {
+  lastState = s;
   document.getElementById('conn').textContent = 'เชื่อมต่อสด / live (sse)';
   document.getElementById('conn').style.color = 'var(--cyan)';
+
+  // Sidebar updates
+  document.getElementById('side-workspace').textContent = s.workspace || '.';
+  document.getElementById('side-status').textContent = s.status || 'ready';
+  document.getElementById('side-seats-list').innerHTML = s.seats.map(st => {
+    const isBusy = st.lock && st.lock !== '-';
+    return '<div class="seat-tree-item">' +
+      '<div class="seat-tree-left"><div class="status-indicator' + (isBusy ? ' busy' : '') + '"></div><span class="role">' + st.role + '</span></div>' +
+      '<span class="sub" style="color:var(--cyan)">' + (st.waiting ? st.waiting + ' msg' : '') + '</span>' +
+      '</div>';
+  }).join('');
+  const lockEntries = Object.entries(s.locks || {});
+  document.getElementById('side-locks-list').innerHTML = lockEntries.length
+    ? lockEntries.map(([k, v]) => '<div class="meta-item"><span class="meta-label">' + k + ':</span><span class="lock-tag">' + v + '</span></div>').join('')
+    : '<div style="color:var(--muted)">ไม่มีการล็อค / none</div>';
+
+  // Table View updates
   document.getElementById('seat-count').textContent = s.seats.length;
   document.getElementById('task-count').textContent = s.tasks.length;
   document.getElementById('edge-count').textContent = (s.edges || []).length;
@@ -1085,15 +1310,32 @@ function render(s) {
   document.getElementById('edges-body').innerHTML = (s.edges && s.edges.length)
     ? s.edges.map(e => '<tr><td class="role">' + e.from + '</td><td><span class="edge-kind">' + e.kind + '</span></td><td class="role">' + e.to + '</td></tr>').join('')
     : '<tr><td colspan="3" style="color:var(--muted);text-align:center;padding:12px">เปิดกว้างทั้งหมด / Open (No edge restrictions)</td></tr>';
+
+  // Feed View updates
   document.getElementById('events-body').innerHTML = (s.events || []).slice(-30).map(e => {
     const actor = e.event === 'msg' ? (e.from + '->' + e.to) : (e.agent || '-');
     return '<div class="event-row"><span class="event-ts">' + e.ts.slice(11) + '</span><span class="event-actor">' + actor + '</span><span class="event-type">' + e.event + (e.task ? ' [' + e.task + ']' : '') + '</span></div>';
   }).reverse().join('');
+
+  // Health View updates
+  document.getElementById('health-status').textContent = s.status || 'ready';
+  document.getElementById('health-locks').textContent = lockEntries.length;
+  document.getElementById('health-seats').textContent = s.seats.length;
+  document.getElementById('health-tasks').textContent = s.tasks.length;
+  document.getElementById('health-edges').textContent = (s.edges || []).length;
+
+  // Graph render
+  const graphPane = document.getElementById('pane-graph');
+  if (graphPane && graphPane.classList.contains('active')) {
+    renderGraph(s);
+  }
 }
+
 fetch('/api/state').then(r => r.json()).then(render).catch(() => {});
 const es = new EventSource('/api/events');
 es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch {} };
 es.onerror = () => { document.getElementById('conn').textContent = 'กำลังเชื่อมต่อใหม่... / reconnecting...'; document.getElementById('conn').style.color = 'var(--muted)'; };
+window.addEventListener('resize', () => { if (lastState) renderGraph(lastState); });
 </script>
 </body>
 </html>`;
@@ -1736,6 +1978,10 @@ async function selftest() {
     assert(htmlText.includes('Edges Topology'), 'dashboard html missing Edges Topology card');
     assert(htmlText.includes('ตำแหน่งการทำงาน'), 'dashboard html missing Thai localization');
     assert(htmlText.includes('id="edges-body"'), 'dashboard html missing edges-body element');
+    assert(htmlText.includes('[GRAPH]') && htmlText.includes('[TABLE]') && htmlText.includes('[FEED]') && htmlText.includes('[HEALTH]'),
+      'dashboard html missing OpenRig tab navigation [GRAPH]/[TABLE]/[FEED]/[HEALTH]');
+    assert(htmlText.includes('<svg') && htmlText.includes('id="graph-canvas"'),
+      'dashboard html missing SVG graph canvas for flow lines');
 
     const stateRes = await fetch(`http://127.0.0.1:${dPort}/api/state`);
     assert(stateRes.status === 200, 'dashboard GET /api/state did not return 200');

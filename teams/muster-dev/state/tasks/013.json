@@ -1,0 +1,17 @@
+{
+  "id": "013",
+  "role": "builder-core",
+  "goal": "Redesign Web Dashboard to OpenRig Graph layout with Explorer sidebar, SVG flow lines, and animated glows",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "Redesign the Web Dashboard in tools/muster.mjs matching the OpenRig UI reference provided by the user (Explorer sidebar, top navigation tabs, interactive Graph topology view with SVG flow lines, animated glow effects)."
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}
