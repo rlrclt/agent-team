@@ -109,7 +109,7 @@ function checkBoundary(agent, filesStr, override, taskId) {
   }
 
   // 2. Role-level baseline boundary check
-  const patterns = ROLE_FORBIDDEN[agent];
+  const patterns = ROLE_FORBIDDEN[roleKey(agent)];
   if (!patterns) return;
   for (const f of files) {
     for (const pat of patterns) {
@@ -160,7 +160,7 @@ function log(id, agent, event, flags) {
     if (flags.files) {
       checkBoundary(agent, flags.files, flags['override-boundary'], id);
     }
-    if (agent === 'reviewer') {
+    if (roleKey(agent) === 'reviewer') {
       const v = flags.verdict ? flags.verdict.toUpperCase() : '';
       if (v !== 'PASS' && v !== 'FAIL') {
         die('reviewer done requires --verdict PASS or --verdict FAIL');
@@ -340,6 +340,35 @@ function loadEvents() {
 
 // --- team management ---------------------------------------------------
 
+const ROLES = ['orchestrator', 'builder-frontend', 'builder-backend', 'reviewer', 'qa', 'runner', 'designer', 'advisor'];
+
+// agents/ holds the roster: one file per seat, filename is the role.
+function rolesOf(teamDir) {
+  const agents = path.join(teamDir, 'agents');
+  if (!fs.existsSync(agents)) return [];
+  return fs.readdirSync(agents)
+    .filter((f) => f.endsWith('.md'))
+    .map((f) => f.replace(/\.md$/, ''))
+    .sort();
+}
+
+// A seat may report its installed name (`alpha-builder`). Strip the team
+// prefix so role rules still apply instead of silently passing.
+function roleKey(agent) {
+  if (!agent) return agent;
+  if (ROLES.includes(agent)) return agent;
+  for (const role of ROLES) {
+    if (agent.endsWith('-' + role)) return role;
+  }
+  return agent;
+}
+
+function assertRosterTarget(target, roles) {
+  if (!roles.includes(target)) {
+    die(`unknown agent '${target}' - roles: ${roles.join(', ') || 'none'}`);
+  }
+}
+
 function teamNames(root = TEAMS) {
   if (!fs.existsSync(root)) return [];
   return fs.readdirSync(root)
@@ -396,12 +425,111 @@ function teamInfo(name) {
   for (const line of events.slice(-5)) console.log('  ' + line);
 }
 
+function teamDoctor(name, root = TEAMS) {
+  const problems = [];
+  const dir = path.join(root, name);
+  const fail = (m) => { problems.push(m); console.log(`FAIL: ${m}`); };
+  const warn = (m) => console.log(`WARN: ${m}`);
+
+  // 1. team.json parses and matches the directory name
+  let t = null;
+  try {
+    t = JSON.parse(fs.readFileSync(path.join(dir, 'team.json'), 'utf8'));
+    if (t.name !== name) fail(`team.json name '${t.name}' does not match directory '${name}'`);
+  } catch {
+    fail(`teams/${name}/team.json missing or unreadable`);
+  }
+
+  // 2. agents/ has at least two roles, each frontmatter name matching its file
+  const roles = rolesOf(dir);
+  if (roles.length < 2) fail(`agents/ needs at least two role files, found ${roles.length}`);
+  for (const role of roles) {
+    const text = fs.readFileSync(path.join(dir, 'agents', `${role}.md`), 'utf8');
+    const m = /^---[\s\S]*?^name:\s*(\S+)/m.exec(text);
+    if (m && m[1] !== role) fail(`agents/${role}.md declares name '${m[1]}'`);
+  }
+  for (const role of roles) {
+    if (!ROLES.includes(role)) warn(`role '${role}' has no automatic boundary rule; only task allow/deny applies`);
+  }
+
+  // 3. installed counterparts
+  const installedDir = path.join(os.homedir(), '.claude', 'agents');
+  for (const role of roles) {
+    if (!fs.existsSync(path.join(installedDir, `${name}-${role}.md`))) {
+      warn(`${name}-${role} is not installed (run scripts/install.ps1 -Team ${name})`);
+    }
+  }
+
+  // 4. no other team claims the same role name
+  for (const other of teamNames(root)) {
+    if (other === name) continue;
+    for (const role of rolesOf(path.join(root, other))) {
+      if (roles.includes(role)) {
+        // Same role name in two teams is fine: install prefixes them. Report only
+        // if the installed file is not clearly owned by one team.
+        break;
+      }
+    }
+  }
+
+  // 5. state/ layout
+  if (!fs.existsSync(path.join(dir, 'state', 'events.jsonl'))) fail('state/events.jsonl missing');
+  if (!fs.existsSync(path.join(dir, 'state', 'tasks'))) fail('state/tasks/ missing');
+
+  // 6. workspace exists and is a git repo
+  if (t && t.workspace) {
+    const ws = path.resolve(path.dirname(root), t.workspace);
+    if (!fs.existsSync(ws)) fail(`workspace '${t.workspace}' does not exist`);
+    else if (!fs.existsSync(path.join(ws, '.git'))) fail(`workspace '${t.workspace}' is not a git repository`);
+  } else if (t) {
+    fail('team.json has no workspace');
+  }
+
+  // 7. stale locks: held by an agent with no role file
+  const locksDir = path.join(dir, 'state', 'locks');
+  if (fs.existsSync(locksDir)) {
+    for (const task of fs.readdirSync(locksDir)) {
+      const owner = teamOwnerOf(dir, task);
+      if (owner && !roles.includes(owner)) {
+        warn(`lock ${task} held by '${owner}' which has no role file; release with: node tools/team.mjs --team ${name} release ${task} ${owner} stale`);
+      }
+    }
+  }
+
+  // Roster table drift (warning only)
+  const contract = path.join(dir, 'AGENTS.md');
+  if (fs.existsSync(contract)) {
+    const text = fs.readFileSync(contract, 'utf8');
+    for (const role of roles) {
+      if (!text.includes(role)) warn(`AGENTS.md Roster does not mention '${role}'`);
+    }
+  }
+
+  const ok = problems.length === 0;
+  if (ok && t && t.status !== 'ready') {
+    t.status = 'ready';
+    fs.writeFileSync(path.join(dir, 'team.json'), JSON.stringify(t, null, 2) + '\n');
+    console.log('status: ready');
+  }
+  console.log(ok ? `doctor: ${name} is healthy` : `doctor: ${name} has ${problems.length} problem(s)`);
+  return { ok, problems };
+}
+
+function teamOwnerOf(teamDir, task) {
+  try { return fs.readFileSync(path.join(teamDir, 'state', 'locks', task, 'owner'), 'utf8').trim(); }
+  catch { return null; }
+}
+
 function teamCmd(args) {
   const [sub, ...a] = args;
   if (sub === 'list') teamList();
   else if (sub === 'new') teamNew(a[0], a[1]);
   else if (sub === 'info') teamInfo(a[0]);
-  else die('usage: team.mjs team list|new <name> <workspace>|info <name>');
+  else if (sub === 'doctor') {
+    const r = teamDoctor(a[0]);
+    if (!r.ok) process.exit(1);
+  }
+  else die('usage: team.mjs team list|new <name> <workspace>|info <name>|doctor <name>');
 }
 
 function status(id) {
@@ -449,19 +577,21 @@ function send(fromAgent, toAgent, msg) {
   if (!fromAgent || !toAgent || !msg) {
     die('usage: team.mjs send <from-agent> <to-agent> "<message>"');
   }
-  const ROSTER = ['orchestrator', 'builder-frontend', 'builder-backend', 'reviewer', 'qa', 'runner'];
-  if (!ROSTER.includes(toAgent)) {
-    console.warn(`warning: target '${toAgent}' not in default roster (${ROSTER.join(', ')})`);
-  }
+  const roles = rolesOf(requireTeam().dir);
+  assertRosterTarget(toAgent, roles);
   logEvent({ event: 'msg', from: fromAgent, to: toAgent, msg });
 
   try {
     const safeMsg = msg.replace(/["\\`$]/g, '\\$&');
-    execSync(`herdr agent prompt ${toAgent} "[from ${fromAgent}] ${safeMsg}"`, { stdio: 'ignore' });
+    execSync(`herdr agent prompt ${requireTeamName()}-${toAgent} "[from ${fromAgent}] ${safeMsg}"`, { stdio: 'ignore' });
     console.log(`delivered to ${toAgent}`);
   } catch {
     console.log(`logged message for ${toAgent} (herdr dispatch skipped)`);
   }
+}
+
+function requireTeamName() {
+  return path.basename(requireTeam().dir);
 }
 
 function inbox(agent) {
@@ -530,6 +660,7 @@ function mkSandbox() {
   const teams = path.join(dir, 'teams');
   for (const t of ['alpha', 'beta']) {
     fs.mkdirSync(path.join(teams, t, 'state', 'tasks'), { recursive: true });
+    fs.mkdirSync(path.join(teams, t, 'agents'), { recursive: true });
     fs.writeFileSync(path.join(teams, t, 'team.json'),
       JSON.stringify({ name: t, workspace: '.', status: 'draft' }));
   }
@@ -619,7 +750,10 @@ function selftest() {
   try { log(id, 'reviewer', 'done', { verdict: 'PASS' }); reviewerAllowed = true; } catch {}
   assert(reviewerAllowed, 'reviewer done with PASS was rejected');
 
-  // Peer messaging selftest
+  // Peer messaging selftest (send now reads the roster from agents/)
+  for (const r of ['builder-frontend', 'builder-backend']) {
+    fs.writeFileSync(path.join(TEAM.dir, 'agents', `${r}.md`), `---\nname: ${r}\n---\n`);
+  }
   send('builder-frontend', 'builder-backend', 'selftest msg');
   const evs = loadEvents();
   const lastMsg = evs[evs.length - 1];
@@ -663,6 +797,31 @@ function selftest() {
   loud();
   assert(badName, 'invalid team name was accepted');
   rmSandbox(sb2);
+
+  // --- roster and doctor -----------------------------------------------
+  const sb3 = mkSandbox();
+  const sb3Alpha = path.join(sb3, 'alpha');
+  fs.mkdirSync(path.join(sb3Alpha, 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(sb3Alpha, 'agents', 'builder.md'), '---\nname: builder\n---\n');
+  fs.writeFileSync(path.join(sb3Alpha, 'agents', 'reviewer.md'), '---\nname: reviewer\n---\n');
+  const roles = rolesOf(sb3Alpha);
+  assert(roles.includes('builder') && roles.includes('reviewer'), 'rolesOf did not read agents/');
+
+  quiet();
+  let badTarget = false;
+  try { assertRosterTarget('ghost', roles); } catch { badTarget = true; }
+  loud();
+  assert(badTarget, 'send to a non-roster target was not refused');
+
+  assert(roleKey('alpha-builder-frontend') === 'builder-frontend', 'prefixed role not resolved');
+  assert(roleKey('builder-frontend') === 'builder-frontend', 'plain role changed');
+  assert(roleKey('custom-role') === 'custom-role', 'unknown role was rewritten');
+
+  // team.json in the sandbox points at '.', which is not a git repo => doctor fails
+  const d1 = teamDoctor('alpha', sb3);
+  assert(!d1.ok, 'doctor passed a team with no workspace');
+
+  rmSandbox(sb3);
   fs.rmSync(path.join(requireTeam().locks, id), { recursive: true, force: true });
   TEAM = savedTEAM;
   rmSandbox(sb);
