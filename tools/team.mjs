@@ -338,6 +338,72 @@ function loadEvents() {
   }).filter(Boolean);
 }
 
+// --- team management ---------------------------------------------------
+
+function teamNames(root = TEAMS) {
+  if (!fs.existsSync(root)) return [];
+  return fs.readdirSync(root)
+    .filter((d) => fs.existsSync(path.join(root, d, 'team.json')))
+    .sort();
+}
+
+function teamList(root = TEAMS) {
+  const names = teamNames(root);
+  if (names.length === 0) return console.log('no teams. run: node tools/team.mjs team new <name> <workspace>');
+  for (const name of names) {
+    const t = JSON.parse(fs.readFileSync(path.join(root, name, 'team.json'), 'utf8'));
+    const tasksDir = path.join(root, name, 'state', 'tasks');
+    const locksDir = path.join(root, name, 'state', 'locks');
+    const tasks = fs.existsSync(tasksDir) ? fs.readdirSync(tasksDir).filter((f) => !f.startsWith('TEMPLATE.')).length : 0;
+    const locks = fs.existsSync(locksDir) ? fs.readdirSync(locksDir).length : 0;
+    console.log(`${name} ${t.status || 'draft'} ${t.workspace || '-'} tasks=${tasks} locks=${locks}`);
+  }
+}
+
+function teamNew(name, workspace, root = TEAMS) {
+  if (!name || !workspace) die('usage: node tools/team.mjs team new <name> <workspace>');
+  if (!TEAM_NAME_RE.test(name)) die(`invalid team name '${name}' (expected [a-z][a-z0-9-]{1,31})`);
+  const dir = path.join(root, name);
+  if (fs.existsSync(path.join(dir, 'team.json'))) die(`team already exists: ${name}`);
+  fs.mkdirSync(path.join(dir, 'state', 'tasks'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'team.json'), JSON.stringify({
+    name,
+    workspace,
+    status: 'draft',
+    createdAt: new Date().toISOString(),
+  }, null, 2) + '\n');
+  fs.writeFileSync(path.join(dir, 'state', 'events.jsonl'), '');
+  console.log(`team created: ${dir}`);
+}
+
+function teamInfo(name) {
+  const dir = path.join(TEAMS, name);
+  if (!fs.existsSync(path.join(dir, 'team.json'))) die(`team not found: ${name}`);
+  const t = JSON.parse(fs.readFileSync(path.join(dir, 'team.json'), 'utf8'));
+  const agents = fs.existsSync(path.join(dir, 'agents'))
+    ? fs.readdirSync(path.join(dir, 'agents')).filter((f) => f.endsWith('.md')).map((f) => f.replace(/\.md$/, ''))
+    : [];
+  console.log(`TEAM: ${t.name} | STATUS: ${t.status} | WORKSPACE: ${t.workspace}`);
+  console.log(`ROLES: ${agents.join(', ') || 'none'}`);
+  const locksDir = path.join(dir, 'state', 'locks');
+  const locks = fs.existsSync(locksDir) ? fs.readdirSync(locksDir) : [];
+  console.log(`LOCKS: ${locks.length ? locks.join(', ') : 'none'}`);
+  const events = fs.existsSync(path.join(dir, 'state', 'events.jsonl'))
+    ? fs.readFileSync(path.join(dir, 'state', 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean)
+    : [];
+  console.log('RECENT:');
+  for (const line of events.slice(-5)) console.log('  ' + line);
+}
+
+function teamCmd(args) {
+  const [sub, ...a] = args;
+  if (sub === 'list') teamList();
+  else if (sub === 'new') teamNew(a[0], a[1]);
+  else if (sub === 'info') teamInfo(a[0]);
+  else die('usage: team.mjs team list|new <name> <workspace>|info <name>');
+}
+
 function status(id) {
   const events = loadEvents();
   const locks = fs.existsSync(requireTeam().locks) ? fs.readdirSync(requireTeam().locks) : [];
@@ -573,6 +639,30 @@ function selftest() {
   assert(taskDenyBlocked, 'task-level deny was not enforced');
 
   fs.rmSync(testTaskFile, { force: true });
+
+  // --- team new --------------------------------------------------------
+  const sb2 = mkSandbox();
+  teamNew('gamma', 'workspace/gamma', sb2);
+  const gdir = path.join(sb2, 'gamma');
+  const gj = JSON.parse(fs.readFileSync(path.join(gdir, 'team.json'), 'utf8'));
+  assert(gj.status === 'draft', 'new team was not draft');
+  assert(gj.workspace === 'workspace/gamma', 'workspace not recorded');
+  assert(fs.existsSync(path.join(gdir, 'agents')), 'agents/ not created');
+  assert(fs.existsSync(path.join(gdir, 'state', 'tasks')), 'state/tasks not created');
+  assert(fs.existsSync(path.join(gdir, 'state', 'events.jsonl')), 'events.jsonl not created');
+
+  quiet();
+  let dup = false;
+  try { teamNew('gamma', 'workspace/gamma', sb2); } catch { dup = true; }
+  loud();
+  assert(dup, 'duplicate team name was accepted');
+
+  quiet();
+  let badName = false;
+  try { teamNew('Bad Name', 'x', sb2); } catch { badName = true; }
+  loud();
+  assert(badName, 'invalid team name was accepted');
+  rmSandbox(sb2);
   fs.rmSync(path.join(requireTeam().locks, id), { recursive: true, force: true });
   TEAM = savedTEAM;
   rmSandbox(sb);
@@ -588,6 +678,7 @@ if (ti !== -1) {
 }
 const [cmd, ...rest] = argv;
 switch (cmd) {
+  case 'team': teamCmd(rest); break;
   case 'selftest': selftest(); break;
 
   // Work commands: every one requires --team
