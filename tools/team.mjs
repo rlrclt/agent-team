@@ -520,6 +520,50 @@ function teamOwnerOf(teamDir, task) {
   catch { return null; }
 }
 
+const MARKER = (name) => `<!-- agent-team: ${name} -->`;
+
+function installTeam(name, dest, force, root = TEAMS) {
+  const dir = path.join(root, name);
+  if (!fs.existsSync(path.join(dir, 'team.json'))) die(`team not found: ${name}`);
+  const roles = rolesOf(dir);
+  if (roles.length === 0) die(`team ${name} has no role files in agents/`);
+  fs.mkdirSync(dest, { recursive: true });
+
+  let copied = 0, skipped = 0;
+  const refused = [];
+  for (const role of roles) {
+    const src = path.join(dir, 'agents', `${role}.md`);
+    const target = path.join(dest, `${name}-${role}.md`);
+    let text = fs.readFileSync(src, 'utf8');
+
+    if (fs.existsSync(target)) {
+      const existing = fs.readFileSync(target, 'utf8');
+      const ours = existing.startsWith(MARKER(name));
+      if (!ours) { refused.push(target); continue; }
+      if (!force) { skipped++; continue; }
+    }
+
+    // Name first, then the <team> token everywhere else.
+    text = text.replace(/^---\n([\s\S]*?)\n---/, (all, fm) =>
+      `---\n${fm.replace(/^name:\s*\S+/m, `name: ${name}-${role}`)}\n---`);
+    text = text.split('<team>').join(name);
+    fs.writeFileSync(target, MARKER(name) + '\n' + text);
+    copied++;
+  }
+
+  for (const t of refused) console.error(`  refused  ${path.basename(t)}  (not installed by team '${name}')`);
+  console.log(`install ${name}: ${copied} copied, ${skipped} skipped${refused.length ? `, ${refused.length} refused` : ''}`);
+  if (refused.length) die(`refusing to overwrite ${refused.length} file(s) not owned by team '${name}'`);
+  return { copied, skipped, refused };
+}
+
+function teamInstallCmd(names, dest) {
+  const target = dest || path.join(os.homedir(), '.claude', 'agents');
+  const teams = names.length ? names : teamNames();
+  if (teams.length === 0) die('no teams to install');
+  for (const n of teams) installTeam(n, target, false);
+}
+
 function teamCmd(args) {
   const [sub, ...a] = args;
   if (sub === 'list') teamList();
@@ -529,7 +573,11 @@ function teamCmd(args) {
     const r = teamDoctor(a[0]);
     if (!r.ok) process.exit(1);
   }
-  else die('usage: team.mjs team list|new <name> <workspace>|info <name>|doctor <name>');
+  else if (sub === 'install') {
+    const flags = parseFlags(a);
+    teamInstallCmd(a.filter((x) => !x.startsWith('--')), flags.dest);
+  }
+  else die('usage: team.mjs team list|new <name> <workspace>|info <name>|doctor <name>|install [<name>]');
 }
 
 function status(id) {
@@ -822,6 +870,43 @@ function selftest() {
   assert(!d1.ok, 'doctor passed a team with no workspace');
 
   rmSandbox(sb3);
+
+  // --- prefixed install -------------------------------------------------
+  const sb4 = mkSandbox();
+  fs.mkdirSync(path.join(sb4, 'alpha', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(sb4, 'alpha', 'agents', 'builder.md'),
+    '---\nname: builder\n---\nnode tools/team.mjs --team <team> status\n');
+  const dest = path.join(path.dirname(sb4), 'claude-agents');
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.mkdirSync(dest, { recursive: true });
+
+  const res = installTeam('alpha', dest, false, sb4);
+  assert(res.copied === 1, 'install did not copy');
+  const out = fs.readFileSync(path.join(dest, 'alpha-builder.md'), 'utf8');
+  assert(out.includes('name: alpha-builder'), 'frontmatter name not prefixed');
+  assert(out.includes('--team alpha'), '<team> token not substituted');
+  assert(!out.includes('<team>'), 'token left unsubstituted');
+
+  // a foreign file at the same target is refused, even with force
+  fs.writeFileSync(path.join(dest, 'alpha-builder.md'), 'someone else\n');
+  quiet();
+  let refused = false;
+  try { installTeam('alpha', dest, true, sb4); } catch { refused = true; }
+  loud();
+  assert(refused, 'foreign file was overwritten');
+  assert(fs.readFileSync(path.join(dest, 'alpha-builder.md'), 'utf8') === 'someone else\n',
+    'foreign file was modified');
+
+  // force overwrites a file this team installed
+  fs.rmSync(path.join(dest, 'alpha-builder.md'));
+  installTeam('alpha', dest, false, sb4);
+  fs.writeFileSync(path.join(dest, 'alpha-builder.md'), '<!-- agent-team: alpha -->\nstale\n');
+  const res2 = installTeam('alpha', dest, true, sb4);
+  assert(res2.copied === 1, '-Force did not overwrite own prefix');
+  assert(fs.readFileSync(path.join(dest, 'alpha-builder.md'), 'utf8').includes('name: alpha-builder'),
+    'force left the file stale');
+  fs.rmSync(dest, { recursive: true, force: true });
+  rmSandbox(sb4);
   fs.rmSync(path.join(requireTeam().locks, id), { recursive: true, force: true });
   TEAM = savedTEAM;
   rmSandbox(sb);
