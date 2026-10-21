@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
 import { execFileSync, execSync, spawnSync } from 'node:child_process';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -226,10 +227,15 @@ function parseFlags(argv) {
     const m = /^--(\w[\w-]*)$/.exec(argv[i]);
     if (m) {
       const key = m[1];
-      if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--')) {
-        out[key] = argv[++i];
+      const val = argv[i + 1] !== undefined && !argv[i + 1].startsWith('--') ? argv[++i] : true;
+      if (key in out) {
+        if (Array.isArray(out[key])) {
+          out[key].push(val);
+        } else {
+          out[key] = [out[key], val];
+        }
       } else {
-        out[key] = true;
+        out[key] = val;
       }
     }
   }
@@ -281,16 +287,22 @@ function loadLessons() {
 
 function newTask(id, role, goal, flags) {
   if (!id || !role || !goal) {
-    die('usage: muster.mjs new-task <id> <role> "<goal>" [--allow "a/**,b/**"] [--deny "c/**"] [--spec "s1;s2"] [--verify ".."]');
+    die('usage: muster.mjs new-task <id> <role> "<goal>" [--allow "a/**,b/**"] [--deny "c/**"] [--spec "step 1" --spec "step 2"] [--verify ".."]');
   }
   const tasksDir = path.join(requireTeam().state, 'tasks');
   fs.mkdirSync(tasksDir, { recursive: true });
   const taskFile = path.join(tasksDir, `${id}.json`);
   if (fs.existsSync(taskFile)) die(`task ${id} already exists`);
 
-  const allow = flags.allow ? flags.allow.split(',').map((s) => s.trim()) : [];
-  const deny = flags.deny ? flags.deny.split(',').map((s) => s.trim()) : [];
-  const spec = flags.spec ? flags.spec.split(';').map((s) => s.trim()) : [goal];
+  const allow = flags.allow
+    ? (Array.isArray(flags.allow) ? flags.allow : [flags.allow]).flatMap((s) => s.split(',').map((x) => x.trim()))
+    : [];
+  const deny = flags.deny
+    ? (Array.isArray(flags.deny) ? flags.deny : [flags.deny]).flatMap((s) => s.split(',').map((x) => x.trim()))
+    : [];
+  const spec = flags.spec
+    ? (Array.isArray(flags.spec) ? flags.spec : [flags.spec]).map((s) => (typeof s === 'string' ? s.trim() : s))
+    : [goal];
   const verify = flags.verify || 'npm test';
 
   const task = {
@@ -422,6 +434,26 @@ function roleKey(agent) {
 function assertRosterTarget(target, roles) {
   if (!roles.includes(target)) {
     die(`unknown agent '${target}' - roles: ${roles.join(', ') || 'none'}`);
+  }
+}
+
+const readTeamConfig = (teamDir) => JSON.parse(fs.readFileSync(path.join(teamDir, 'team.json'), 'utf8'));
+
+// Optional team.json `edges` declare which routes the contract allows. Absent means
+// any route, so teams without edges keep working. A stale edge naming a role that
+// has no seat in agents/ is refused, so it cannot silently allow a ghost.
+function checkRoute(team, from, to, roles) {
+  const edges = readTeamConfig(team.dir).edges;
+  if (!edges) return;
+  for (const e of edges) {
+    for (const r of [e.from, e.to]) {
+      if (!roles.includes(r)) die(`team.json edge ${e.kind} '${e.from}' -> '${e.to}' names '${r}', which has no seat in agents/ (${roles.join(', ') || 'none'})`);
+    }
+  }
+  if (!edges.some((e) => e.from === from && e.to === to)) {
+    const allowed = edges.filter((e) => e.from === from).map((e) => e.to);
+    die(`route ${from} -> ${to} is not declared in team.json edges.\n` +
+        `  ${from} may send to: ${allowed.join(', ') || 'nobody '}`);
   }
 }
 
@@ -782,7 +814,8 @@ function status(id) {
       for (const e of taskEvents.slice(-5)) {
         const detail = e.verdict ? `[verdict: ${e.verdict}] ` : e.note ? `[${e.note}] ` : '';
         const f = e.files ? `(files: ${e.files}) ` : '';
-        console.log(`  ${e.ts} | ${e.agent} -> ${e.event} ${detail}${f}`);
+        const actor = e.event === 'msg' ? `${e.from}->${e.to}` : e.agent;
+        console.log(`  ${e.ts} | ${actor} -> ${e.event} ${detail}${f}`);
       }
     }
     return;
@@ -802,7 +835,9 @@ function status(id) {
     const held = ownerOf(tid);
     const revEvents = events.filter((e) => String(e.task) === tid || String(e.task) === tf);
     const last = revEvents[revEvents.length - 1];
-    const lastDesc = last ? `${last.agent}:${last.event}${last.verdict ? `(${last.verdict})` : ''}` : 'no-events';
+    const lastDesc = last
+      ? (last.event === 'msg' ? `${last.from}->${last.to}:${last.event}` : `${last.agent}:${last.event}${last.verdict ? `(${last.verdict})` : ''}`)
+      : 'no-events';
     console.log(`  [${tid}] ${held ? `CLAIMED(${held})` : 'UNCLAIMED'} | Last: ${lastDesc}`);
   }
 }
@@ -829,12 +864,16 @@ function briefFor(role) {
   const held = fs.existsSync(team.locks) ? fs.readdirSync(team.locks).filter((id) => ownerOf(id) === role) : [];
   const waiting = events.filter((e) => e.event === 'msg' && e.to === role).slice(-5);
   const last = events.filter((e) => e.agent === role).slice(-5);
+  const edges = readTeamConfig(team.dir).edges;
+  const routes = edges ? edges.filter((e) => e.from === role).map((e) => `${e.kind} -> ${e.to}`) : null;
 
   const out = [
     `TEAM: ${teamName} | YOU: ${role} | herdr/agent name: ${teamName}-${role}`,
     `CONTRACT: teams/${teamName}/AGENTS.md (read it first)`,
     `WORK: node tools/muster.mjs --team ${teamName} ...`,
     `HELD: ${held.length ? held.join(', ') : 'nothing'}`,
+    // Omitted when the team declares no edges: any route is allowed.
+    ...(routes ? [`ROUTES: ${routes.join(', ') || 'nobody (send will be refused)'}`] : []),
     'WAITING:',
     ...(waiting.length ? waiting.map((m) => `  [${m.ts}] from ${m.from}: ${m.msg}`) : ['  none']),
     'YOUR LAST EVENTS:',
@@ -860,6 +899,8 @@ function send(fromAgent, toAgent, msg, taskId) {
   }
   const roles = rolesOf(requireTeam().dir);
   assertRosterTarget(toAgent, roles);
+  // Refuse an undeclared route before anything is logged.
+  checkRoute(requireTeam(), fromAgent, toAgent, roles);
   // Delegated work must name the task it belongs to, so it can be tracked.
   if (!taskId) die(`send requires --task <id>: a message that hands out work must cite the task. See: node tools/muster.mjs --team ${requireTeamName()} ls`);
   if (!findTaskFile(taskId)) die(`unknown task '${taskId}'. Create it first: node tools/muster.mjs --team ${requireTeamName()} new-task ${taskId} <role> "<goal>"`);
@@ -880,6 +921,211 @@ function send(fromAgent, toAgent, msg, taskId) {
 
 function requireTeamName() {
   return path.basename(requireTeam().dir);
+}
+
+// One line per seat: lock, waiting messages, last event. Reads team state only, never herdr,
+// so it works when herdr is absent. Format is stable and greppable, no colour or boxes.
+function seats() {
+  const team = requireTeam();
+  const roles = rolesOf(team.dir);
+  if (roles.length === 0) return console.log('no seats: agents/ is empty or missing');
+  const events = loadEvents();
+  for (const role of roles) {
+    const held = fs.existsSync(team.locks)
+      ? fs.readdirSync(team.locks).filter((id) => ownerOf(id) === role)
+      : [];
+    const waiting = events.filter((e) => e.event === 'msg' && e.to === role).length;
+    const last = events.filter((e) => e.agent === role).pop();
+    console.log(`${role} | lock: ${held.join(',') || '-'} | waiting: ${waiting} | last: ` +
+      (last ? `${last.ts} ${last.event}` : 'none'));
+  }
+}
+
+function getTeamState(team = requireTeam()) {
+  const cfg = readTeamConfig(team.dir);
+  const roles = rolesOf(team.dir);
+  const events = loadEvents();
+  const locks = fs.existsSync(team.locks) ? fs.readdirSync(team.locks) : [];
+  const lockedMap = {};
+  for (const l of locks) lockedMap[l] = ownerOf(l) ?? '?';
+
+  const seatsList = roles.map((role) => {
+    const held = locks.filter((id) => ownerOf(id) === role);
+    const waiting = events.filter((e) => e.event === 'msg' && e.to === role).length;
+    const last = events.filter((e) => e.agent === role).pop();
+    return {
+      role,
+      lock: held.join(',') || '-',
+      waiting,
+      last: last ? `${last.ts} ${last.event}` : 'none',
+    };
+  });
+
+  const tasksDir = path.join(team.state, 'tasks');
+  const taskFiles = fs.existsSync(tasksDir)
+    ? fs.readdirSync(tasksDir).filter((f) => !f.startsWith('TEMPLATE.'))
+    : [];
+  const tasks = taskFiles.map((tf) => {
+    const tid = tf.replace(/\.(json|md)$/, '');
+    const held = ownerOf(tid);
+    const revEvents = events.filter((e) => String(e.task) === tid || String(e.task) === tf);
+    const last = revEvents[revEvents.length - 1];
+    const lastDesc = last
+      ? (last.event === 'msg' ? `${last.from}->${last.to}:${last.event}` : `${last.agent}:${last.event}${last.verdict ? `(${last.verdict})` : ''}`)
+      : 'no-events';
+    return { id: tid, held: held || null, last: lastDesc };
+  });
+
+  return {
+    team: path.basename(team.dir),
+    workspace: cfg.workspace,
+    status: cfg.status,
+    edges: cfg.edges || [],
+    locks: lockedMap,
+    seats: seatsList,
+    tasks,
+    events: events.slice(-50),
+  };
+}
+
+function dashboardHtml(teamName) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>muster &bull; ${teamName}</title>
+<style>
+:root {
+  --bg: #090d16;
+  --surface: #0f172a;
+  --border: #1e293b;
+  --text: #e2e8f0;
+  --muted: #64748b;
+  --cyan: #06b6d4;
+  --cyan-dim: #083344;
+  --cyan-glow: #22d3ee;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background: var(--bg); color: var(--text); padding: 24px; font-size: 13px; line-height: 1.5; }
+header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 24px; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.logo { font-size: 18px; font-weight: 700; color: var(--cyan); letter-spacing: -0.5px; }
+.badge { background: var(--cyan-dim); color: var(--cyan-glow); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid var(--cyan); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 24px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
+.card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+.card-title span.count { color: var(--cyan); }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+th { color: var(--muted); font-size: 11px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+td { padding: 6px 8px; border-bottom: 1px solid #131c2e; }
+.role { font-weight: 600; color: var(--text); }
+.lock-tag { color: #f59e0b; }
+.msg-tag { color: var(--cyan); }
+.events-stream { max-height: 300px; overflow-y: auto; font-size: 12px; display: flex; flex-direction: column-reverse; gap: 4px; }
+.event-row { padding: 4px 8px; border-radius: 4px; background: #0c121e; display: flex; gap: 10px; font-family: monospace; }
+.event-ts { color: var(--muted); }
+.event-actor { color: var(--cyan-glow); font-weight: 600; }
+.event-type { color: var(--text); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="live-dot"></div>
+    <div class="logo">muster</div>
+    <div class="badge">${teamName}</div>
+  </div>
+  <div id="conn" style="color:var(--muted);font-size:11px;">connecting...</div>
+</header>
+<div class="grid">
+  <div class="card">
+    <div class="card-title">Seats <span class="count" id="seat-count">0</span></div>
+    <table>
+      <thead><tr><th>Role</th><th>Lock</th><th>Waiting</th><th>Last Event</th></tr></thead>
+      <tbody id="seats-body"></tbody>
+    </table>
+  </div>
+  <div class="card">
+    <div class="card-title">Tasks <span class="count" id="task-count">0</span></div>
+    <table>
+      <thead><tr><th>Task</th><th>Status</th><th>Last Event</th></tr></thead>
+      <tbody id="tasks-body"></tbody>
+    </table>
+  </div>
+</div>
+<div class="card">
+  <div class="card-title">Recent Events</div>
+  <div class="events-stream" id="events-body"></div>
+</div>
+<script>
+function render(s) {
+  document.getElementById('conn').textContent = 'live (sse)';
+  document.getElementById('conn').style.color = 'var(--cyan)';
+  document.getElementById('seat-count').textContent = s.seats.length;
+  document.getElementById('task-count').textContent = s.tasks.length;
+  document.getElementById('seats-body').innerHTML = s.seats.map(st =>
+    '<tr><td class="role">' + st.role + '</td><td class="lock-tag">' + st.lock + '</td><td class="msg-tag">' + st.waiting + '</td><td>' + st.last + '</td></tr>'
+  ).join('');
+  document.getElementById('tasks-body').innerHTML = s.tasks.map(t =>
+    '<tr><td class="role">' + t.id + '</td><td>' + (t.held ? '<span class="lock-tag">HELD (' + t.held + ')</span>' : '<span style="color:var(--muted)">OPEN</span>') + '</td><td>' + t.last + '</td></tr>'
+  ).join('');
+  document.getElementById('events-body').innerHTML = (s.events || []).slice(-30).map(e => {
+    const actor = e.event === 'msg' ? (e.from + '->' + e.to) : (e.agent || '-');
+    return '<div class="event-row"><span class="event-ts">' + e.ts.slice(11) + '</span><span class="event-actor">' + actor + '</span><span class="event-type">' + e.event + (e.task ? ' [' + e.task + ']' : '') + '</span></div>';
+  }).reverse().join('');
+}
+fetch('/api/state').then(r => r.json()).then(render).catch(() => {});
+const es = new EventSource('/api/events');
+es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch {} };
+es.onerror = () => { document.getElementById('conn').textContent = 'reconnecting...'; document.getElementById('conn').style.color = 'var(--muted)'; };
+</script>
+</body>
+</html>`;
+}
+
+function createDashboardServer(team = requireTeam()) {
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://localhost');
+    if (url.pathname === '/') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(dashboardHtml(path.basename(team.dir)));
+    } else if (url.pathname === '/api/state') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(getTeamState(team)));
+    } else if (url.pathname === '/api/events') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      });
+      res.write(`data: ${JSON.stringify(getTeamState(team))}\n\n`);
+      const push = () => {
+        try { res.write(`data: ${JSON.stringify(getTeamState(team))}\n\n`); } catch {}
+      };
+      let watcher = null;
+      if (fs.existsSync(team.state)) {
+        try { watcher = fs.watch(team.state, { recursive: true }, () => push()); } catch {}
+      }
+      req.on('close', () => { if (watcher) watcher.close(); });
+    } else {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+    }
+  });
+  return server;
+}
+
+function dashboard(flags = {}) {
+  const team = requireTeam();
+  const port = Number(flags.port) || 3000;
+  const server = createDashboardServer(team);
+  server.listen(port, () => {
+    console.log(`muster dashboard for ${path.basename(team.dir)} listening at http://localhost:${port}`);
+  });
+  return server;
 }
 
 function inbox(agent) {
@@ -956,7 +1202,7 @@ function mkSandbox() {
 }
 const rmSandbox = (teamsRoot) => fs.rmSync(path.dirname(teamsRoot), { recursive: true, force: true });
 
-function selftest() {
+async function selftest() {
   const id = '__selftest__';
   const assert = (c, m) => { if (!c) die('SELFTEST FAIL: ' + m); };
 
@@ -966,6 +1212,12 @@ function selftest() {
     console.error = () => {};
   };
   const loud = () => { process.exit = realExit; console.error = realErr; };
+  // Commands that report by printing: run them with stdout captured.
+  const bindStdout = (fn) => {
+    const realLog = console.log, out = [];
+    console.log = (...a) => out.push(a.join(' '));
+    try { return (fn(), out.join('\n')); } finally { console.log = realLog; }
+  };
 
   // --- team resolution -------------------------------------------------
   quiet();
@@ -1062,12 +1314,85 @@ function selftest() {
   assert(lastMsg.task === 'msg-task', 'peer message did not record its task');
   assert(!delivered, 'send claimed delivery while herdr was unavailable');
 
+  // status overview and detail must render message events as from->to, never undefined
+  const stOverview = bindStdout(() => status());
+  assert(!stOverview.includes('undefined:msg'), 'status overview printed undefined:msg');
+  assert(stOverview.includes('builder-frontend->builder-backend:msg'), 'status overview did not render from->to:msg');
+  const stDetail = bindStdout(() => status('msg-task'));
+  assert(!stDetail.includes('undefined -> msg'), 'status detail printed undefined -> msg');
+  assert(stDetail.includes('builder-frontend->builder-backend -> msg'), 'status detail did not render from->to -> msg');
+
+  // --- team edges -------------------------------------------------------
+  // Absent edges: any route stays allowed (no existing team breaks).
+  const cfgPath = path.join(TEAM.dir, 'team.json');
+  const cfg = () => JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  fs.writeFileSync(cfgPath, JSON.stringify({ name: 'alpha', workspace: '.', status: 'draft' }));
+  let noEdgesAllowed = true;
+  quiet();
+  try { checkRoute(TEAM, 'builder-frontend', 'builder-backend', rolesOf(TEAM.dir)); } catch { noEdgesAllowed = false; }
+  loud();
+  assert(noEdgesAllowed, 'absent edges refused a route');
+
+  // Declared edges: allow the declared pair, refuse the undeclared one, refuse a stale edge,
+  // and refuse before logging so a denied route leaves no event behind.
+  fs.writeFileSync(cfgPath, JSON.stringify({ name: 'alpha', workspace: '.', status: 'draft',
+    edges: [{ kind: 'delegates_to', from: 'builder-frontend', to: 'builder-backend' }] }));
+  let routeAllowed = true;
+  quiet();
+  try { checkRoute(TEAM, 'builder-frontend', 'builder-backend', rolesOf(TEAM.dir)); } catch { routeAllowed = false; }
+  loud();
+  assert(routeAllowed, 'declared edge was refused');
+
+  let routeDenied = false;
+  quiet();
+  try { checkRoute(TEAM, 'builder-backend', 'builder-frontend', rolesOf(TEAM.dir)); } catch { routeDenied = true; }
+  loud();
+  assert(routeDenied, 'undeclared route was allowed');
+
+  const before = loadEvents().length;
+  let deniedBySend = false;
+  quiet();
+  // builder-backend -> builder-frontend is undeclared, and both are real seats, so this
+  // reaches checkRoute rather than dying earlier at assertRosterTarget.
+  try { send('builder-backend', 'builder-frontend', 'should not log', 'msg-task'); } catch { deniedBySend = true; }
+  loud();
+  assert(deniedBySend, 'send allowed an undeclared route');
+  assert(loadEvents().length === before, 'denied route still logged an event');
+
+  let staleDenied = false;
+  quiet();
+  try { checkRoute(TEAM, 'builder-frontend', 'builder-backend', ['builder-frontend']); } catch { staleDenied = true; }
+  loud();
+  assert(staleDenied, 'edge naming a role with no seat was allowed');
+
+  // brief shows the caller its routes, and omits the line when the team declares none.
+  assert(briefFor('builder-frontend').includes('delegates_to -> builder-backend'), 'brief did not show allowed routes');
+  fs.writeFileSync(cfgPath, JSON.stringify({ name: 'alpha', workspace: '.', status: 'draft' }));
+  assert(!briefFor('builder-frontend').includes('ROUTES:'), 'brief printed ROUTES for a team with no edges');
+
+  // --- seats command ----------------------------------------------------
+  const seatsOut = bindStdout(() => seats());
+  assert(/^builder-frontend \| lock: /m.test(seatsOut), 'seats did not print one line per seat');
+  assert(/^builder-backend \| lock: [^|]*\| waiting: [1-9]/m.test(seatsOut), 'seats did not count a waiting message');
+  fs.writeFileSync(path.join(TEAM.dir, 'agents', 'quiet-role.md'), '---\nname: quiet-role\n---\n');
+  const quietOut = bindStdout(() => seats());
+  assert(/^quiet-role \| .*\| last: none$/m.test(quietOut), 'seats did not mark a role with no events as none');
+  fs.rmSync(path.join(TEAM.dir, 'agents', 'quiet-role.md'));
+  fs.rmSync(TEAM.state, { recursive: true, force: true });  // no state dir: must not throw
+  bindStdout(() => seats());
+  fs.mkdirSync(TEAM.state, { recursive: true });
+
   // Task JSON creation & boundary test
   const testTaskId = '__selftest_task__';
   const testTaskFile = path.join(requireTeam().state, 'tasks', `${testTaskId}.json`);
   fs.rmSync(testTaskFile, { force: true });
-  newTask(testTaskId, 'builder-frontend', 'Test Task', { allow: 'app/components/**', deny: 'app/api/**' });
+  const pf = parseFlags(['--spec', 'step 1; with semicolon', '--spec', 'step 2']);
+  assert(Array.isArray(pf.spec) && pf.spec.length === 2, 'parseFlags did not collect repeated --spec');
+  newTask(testTaskId, 'builder-frontend', 'Test Task', { allow: 'app/components/**', deny: 'app/api/**', spec: pf.spec });
   assert(fs.existsSync(testTaskFile), 'newTask failed to create JSON file');
+  const savedTask = JSON.parse(fs.readFileSync(testTaskFile, 'utf8'));
+  assert(savedTask.spec.length === 2 && savedTask.spec[0] === 'step 1; with semicolon',
+    'newTask split spec or failed to save repeated spec');
 
   let taskDenyBlocked = false;
   quiet();
@@ -1384,6 +1709,37 @@ function selftest() {
   assert(rewriteLegacyText('herdr agent prompt <seat> "x"', 'web-team')
     .includes('herdr agent prompt web-team-<seat>'), 'seat placeholder not prefixed');
   assert(rewriteLegacyText(once, 'web-team') === once, 'rewrite is not idempotent');
+
+  // --- dashboard server selftest ---
+  const dServer = createDashboardServer(TEAM);
+  await new Promise((resolve) => dServer.listen(0, resolve));
+  const dPort = dServer.address().port;
+  try {
+    const htmlRes = await fetch(`http://127.0.0.1:${dPort}/`);
+    assert(htmlRes.status === 200, 'dashboard GET / did not return 200');
+    assert(htmlRes.headers.get('content-type')?.includes('text/html'), 'dashboard GET / is not html');
+    const htmlText = await htmlRes.text();
+    assert(htmlText.includes('muster') && htmlText.includes('cyan'), 'dashboard html missing muster or cyan theme');
+
+    const stateRes = await fetch(`http://127.0.0.1:${dPort}/api/state`);
+    assert(stateRes.status === 200, 'dashboard GET /api/state did not return 200');
+    const stateJson = await stateRes.json();
+    assert(stateJson.team === 'alpha', 'dashboard stateJson wrong team');
+    assert(Array.isArray(stateJson.seats) && Array.isArray(stateJson.tasks), 'dashboard stateJson missing seats or tasks');
+
+    const ac = new AbortController();
+    const sseRes = await fetch(`http://127.0.0.1:${dPort}/api/events`, { signal: ac.signal });
+    assert(sseRes.status === 200, 'dashboard GET /api/events did not return 200');
+    assert(sseRes.headers.get('content-type')?.includes('text/event-stream'), 'dashboard SSE missing text/event-stream');
+    const reader = sseRes.body.getReader();
+    const { value } = await reader.read();
+    const chunk = new TextDecoder().decode(value);
+    assert(chunk.includes('data:'), 'dashboard SSE stream missing data chunk');
+    ac.abort();
+  } finally {
+    dServer.close();
+  }
+
   fs.rmSync(path.join(requireTeam().locks, id), { recursive: true, force: true });
   TEAM = savedTEAM;
   rmSandbox(sb);
@@ -1419,11 +1775,13 @@ const WORK = {
   learn: (r) => learn(r[0]),
   'add-lesson': (r) => addLesson(r[0], r[1], parseFlags(r.slice(2))),
   ls: () => ls(),
+  seats: () => seats(),
+  dashboard: (r) => dashboard(parseFlags(r)),
 };
 
 if (cmd === 'team') teamCmd(rest);
-else if (cmd === 'selftest') selftest();
+else if (cmd === 'selftest') await selftest();
 else if (Object.hasOwn(WORK, cmd)) { requireTeam(); WORK[cmd](rest); }
-else die('usage: node tools/muster.mjs [--team <name>] claim|release|log|new-task|view|status|send|inbox|learn|add-lesson|ls\n' +
+else die('usage: node tools/muster.mjs [--team <name>] claim|release|log|new-task|view|status|send|inbox|learn|add-lesson|ls|seats|dashboard\n' +
          '       node tools/muster.mjs team list|new|info|install|doctor|import-legacy\n' +
          '       node tools/muster.mjs selftest');

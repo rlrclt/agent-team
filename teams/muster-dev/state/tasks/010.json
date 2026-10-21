@@ -1,0 +1,17 @@
+{
+  "id": "010",
+  "role": "builder-core",
+  "goal": "Add minimal clean cyan Web Dashboard with SSE live updates to muster",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "Add a zero-dependency web dashboard command to tools/muster.mjs that runs an HTTP server showing real-time team status."
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}

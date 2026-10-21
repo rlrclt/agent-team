@@ -1,0 +1,18 @@
+{
+  "id": "011",
+  "role": "builder-shell",
+  "goal": "Add scripts/dashboard.ps1 wrapper to launch the dashboard and open default browser",
+  "boundary": {
+    "allow": [
+      "scripts/dashboard.ps1",
+      "README.md"
+    ],
+    "deny": [
+      "tools/muster.mjs"
+    ]
+  },
+  "spec": [
+    "Add a thin PowerShell wrapper scripts/dashboard.ps1 for the new dashboard command."
+  ],
+  "verify": "powershell -NoProfile -ExecutionPolicy Bypass -Command 'Test-Path scripts/dashboard.ps1'"
+}

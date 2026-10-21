@@ -1,0 +1,17 @@
+{
+  "id": "007",
+  "role": "builder-core",
+  "goal": "Add a seats command that shows every seat with its lock, held task and last event in one read",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "Borrowed from OpenRig 'rig ps --nodes'. During the last session the orchestrator repeatedly had to combine herdr agent list JSON, ls, status and brief by hand to answer what is happening. 1) Add a WORK-table command named seats (so it is gated by requireTeam and covered by the runtime selftest loop automatically, no selftest edit needed for the gating). 2) For every role in rolesOf(), print one line with the role, whether it holds a lock and which task id, how many messages wait for it, and the timestamp and name of its last event. Roles with no events print a clear none. 3) Keep the output one line per seat and stable enough to grep, no colour, no boxes. 4) Do not call herdr or any external process, read only team state, because the command must work when herdr is absent. 5) Handle a team with no state directory without throwing. 6) selftest must assert the command runs against a sandbox team with one claimed task and one waiting message, and that a role with no events appears."
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}

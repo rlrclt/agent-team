@@ -1,0 +1,17 @@
+{
+  "id": "009",
+  "role": "builder-core",
+  "goal": "Fix status printing undefined for the last event when it is a message",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "BUG: status at tools/muster.mjs:825 builds the last-event label from last.agent, but a message event is logged as {event: msg, from, to} with no agent field, so every task whose last event is a message prints 'undefined:msg'. Visible today as '[001] UNCLAIMED | Last: undefined:msg'."
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}

@@ -2,5 +2,13 @@
   "name": "muster-dev",
   "workspace": ".",
   "status": "ready",
-  "createdAt": "2026-10-21T18:14:16.881Z"
+  "createdAt": "2026-10-21T18:14:16.881Z",
+  "edges": [
+    { "kind": "delegates_to", "from": "orchestrator", "to": "builder-core" },
+    { "kind": "delegates_to", "from": "orchestrator", "to": "builder-shell" },
+    { "kind": "reviews", "from": "orchestrator", "to": "reviewer" },
+    { "kind": "reports_to", "from": "builder-core", "to": "orchestrator" },
+    { "kind": "reports_to", "from": "builder-shell", "to": "orchestrator" },
+    { "kind": "reports_to", "from": "reviewer", "to": "orchestrator" }
+  ]
 }

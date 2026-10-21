@@ -1,0 +1,18 @@
+{
+  "id": "006",
+  "role": "builder-core",
+  "goal": "Declare team edges in team.json so send() refuses a route the team contract does not allow",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs",
+      "teams/muster-dev/team.json"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "Borrowed from OpenRig edges. Today any role can send to any role, and a builder messaging the reviewer directly actually happened in task 003. 1) team.json may carry an optional edges array of objects shaped kind, from, to, where kind is delegates_to or reports_to or reviews. 2) When edges is present, send() must die before logging the event if the from-to pair is not declared, listing the recipients that from role is allowed to send to. 3) When edges is absent, behaviour is unchanged, so no existing team breaks. 4) Validate at send time against rolesOf(), and die if an edge names a role that is not in agents/, so a stale edge cannot silently allow a ghost. 5) Add edges to teams/muster-dev/team.json covering the real contract, orchestrator delegates to builder-core and builder-shell, orchestrator delegates review to reviewer, builders report to orchestrator, reviewer reports to orchestrator. 6) Teach view or brief to print the allowed edges for the calling role, so an agent can see its routes without reading team.json. 7) selftest must cover the deny case and the allow case, and must prove an absent edges array still permits."
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "008",
+  "role": "builder-core",
+  "goal": "Make --spec repeatable and stop splitting it on semicolons",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "BUG: newTask at tools/muster.mjs:293 does flags.spec.split('",
+    "'), and parseFlags keeps only the last value per flag, so a spec containing a shell command or JS statement is shredded into garbage entries. Task 003's stored spec is already corrupted this way: six junk entries including a bare 'ls()'."
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}

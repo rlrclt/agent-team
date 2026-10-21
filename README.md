@@ -39,6 +39,8 @@ Each teammate runs as its own long-lived process in its own terminal pane via [h
    - The Orchestrator actively challenges the human when instructions violate architecture, skip review/QA, or risk data loss, offering safe alternatives rather than blindly complying.
 6. **Zero-Daemon / Zero-Dependency:**
    - State coordination uses plain Node.js standard libraries (`node:fs`, `node:path`, `node:child_process`). No database setup, no background daemons.
+7. **Real-Time Web Dashboard:**
+   - Zero-dependency cyan Web Dashboard with SSE live updates (`scripts/dashboard.ps1` or `node tools/muster.mjs --team <name> dashboard`).
 
 ---
 
@@ -106,6 +108,9 @@ powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -Team web-team -Dry
 
 # Launch the live team in its own herdr workspace
 powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -Team web-team
+
+# Optional: Launch the real-time web dashboard (cyan theme, SSE updates) and open browser
+powershell -ExecutionPolicy Bypass -File scripts/dashboard.ps1 -Team web-team
 ```
 `seat-up.ps1` runs `doctor` first and refuses to start a team that is not `ready`.
 
@@ -168,6 +173,11 @@ node tools/muster.mjs --team pbmobile learn auth
 # 7. Check team status in 5 lines
 node tools/muster.mjs --team pbmobile status
 node tools/muster.mjs --team pbmobile ls
+
+# 8. Web Dashboard (Live status & SSE events)
+node tools/muster.mjs --team pbmobile dashboard
+# Or launch and open browser with PowerShell:
+powershell -ExecutionPolicy Bypass -File scripts/dashboard.ps1 -Team pbmobile
 ```
 
 ---
@@ -188,7 +198,8 @@ muster/
 │           └── tasks/          # task specs (JSON & Markdown)
 ├── scripts/
 │   ├── install.ps1     # Wrapper over `team install`; copies to ~/.claude/agents/
-│   └── seat-up.ps1     # -Team <name>; doctor gate, then start the herdr workspace
+│   ├── seat-up.ps1     # -Team <name>; doctor gate, then start the herdr workspace
+│   └── dashboard.ps1   # -Team <name>; launch web dashboard and open browser
 ├── tools/
 │   └── muster.mjs        # teams, state, boundary guard & communication engine
 └── workspace/          # example project repos (git-ignored)
