@@ -54,9 +54,13 @@ Denied means someone else owns it. Do not work on it, do not retry in a loop —
 ask the orchestrator or pick different work. When done, and in the same turn:
 
 ```sh
-node tools/muster.mjs --team web-team log <task-id> <agent> done --note "..." --files "a.ts,b.ts"
+node tools/muster.mjs --team web-team log <task-id> <agent> done --note "..." --files "a.ts,b.ts" --reviewed-by reviewer
 node tools/muster.mjs --team web-team release <task-id> <agent>
 ```
+
+A builder task cannot close without `--reviewed-by <reviewer>` naming a seat
+that has already logged `--verdict PASS` for it, and a builder cannot name
+itself.
 
 `muster.mjs log done` strictly checks role boundaries. A frontend agent touching `/api/` or a backend agent touching `/components/` will fail with exit 1.
 

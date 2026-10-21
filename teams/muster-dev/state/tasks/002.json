@@ -1,0 +1,23 @@
+{
+  "id": "002",
+  "role": "reviewer",
+  "goal": "Audit task 001: selftest asserts every work command rejects a missing --team",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "Read exactly the diff of tools/muster.mjs for task 001 (git diff tools/muster.mjs)",
+    "1) The command list in the new selftest loop must cover every work command dispatched in main() that calls requireTeam()",
+    "2) Any work command added later must fail the loop if omitted — say plainly whether this test is closed or open to that gap",
+    "3) spawnSync must not leak a TEAM env var or --team into the child",
+    "4) The assertion must check exit status AND '--team' in stderr, not stdout",
+    "5) No other selftest behaviour regressed",
+    "6) Mean runtime of the added loop is acceptable (it spawns 15 node processes)"
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}

@@ -39,12 +39,15 @@ someone else owns it — pick other work, do not retry in a loop.
 When done, in the same turn:
 
 ```sh
-node tools/muster.mjs --team muster-dev log <task-id> <role> done --note "..." --files "a.ts,b.ts"
+node tools/muster.mjs --team muster-dev log <task-id> <role> done --note "..." --files "a.ts" --reviewed-by <reviewer>
 node tools/muster.mjs --team muster-dev release <task-id> <role>
 ```
 
 `log done` checks both the task's `allow`/`deny` globs and the role baseline;
-a violation exits 1.
+a violation exits 1. A builder task additionally **cannot close without
+`--reviewed-by <reviewer>`** naming a seat that has already logged
+`--verdict PASS` for that task, and a builder cannot name itself. That is the
+review gate, enforced in code.
 
 A lock left by a dead agent is cleared by the orchestrator with an explicit
 `release <id> <agent> stale`. Never release a lock you do not own.

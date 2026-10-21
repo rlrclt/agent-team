@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync, execSync, spawnSync } from 'node:child_process';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TEAMS = path.join(ROOT, 'teams');
@@ -178,6 +178,30 @@ function release(id, agent, reason = '') {
   console.log(`released ${id}`);
 }
 
+// Roles whose `done` closes work someone else wrote, and so needs a review.
+const BUILDER_ROLES = ['builder-frontend', 'builder-backend', 'builder-core', 'builder-shell', 'builder', 'runner', 'qa'];
+
+// A builder may only close a task another seat has reviewed with PASS.
+function requireReview(id, agent, flags) {
+  const key = roleKey(agent);
+  if (!BUILDER_ROLES.includes(key) && !/-core$|-shell$/.test(key)) return;
+
+  const reviewer = flags['reviewed-by'];
+  if (!reviewer) {
+    die(`${agent} cannot close ${id} without --reviewed-by <reviewer>.\n` +
+        `  dispatch the review first: herdr agent prompt ${requireTeamName()}-<reviewer> "Review task ${id}"\n` +
+        `  then close with: log ${id} ${agent} done ... --reviewed-by <reviewer>`);
+  }
+  if (roleKey(reviewer) === key) die(`${agent} cannot approve its own work (--reviewed-by ${reviewer})`);
+
+  const passed = loadEvents().some((e) =>
+    String(e.task) === String(id) &&
+    roleKey(e.agent) === roleKey(reviewer) &&
+    e.event === 'done' && String(e.verdict).toUpperCase() === 'PASS');
+  if (!passed) die(`no PASS from '${reviewer}' recorded for task ${id}. Review it first:\n` +
+                   `  log ${id} ${reviewer} done --verdict PASS --note "..."`);
+}
+
 function log(id, agent, event, flags) {
   if (event === 'done') {
     if (flags.files) {
@@ -188,6 +212,8 @@ function log(id, agent, event, flags) {
       if (v !== 'PASS' && v !== 'FAIL') {
         die('reviewer done requires --verdict PASS or --verdict FAIL');
       }
+    } else {
+      requireReview(id, agent, flags);
     }
   }
   logEvent({ task: id, agent, event, ...flags });
@@ -842,8 +868,13 @@ function send(fromAgent, toAgent, msg, taskId) {
   try {
     herdrPrompt(`${requireTeamName()}-${toAgent}`, `[from ${fromAgent}] ${msg}`);
     console.log(`delivered to ${toAgent}`);
-  } catch {
-    console.log(`logged message for ${toAgent} (herdr dispatch skipped)`);
+  } catch (err) {
+    // Logged but not delivered is not handled: a seat that never receives the
+    // work will not report back. Fail loudly and say what to check.
+    const why = err.code === 'ENOENT' ? 'herdr is not on PATH' : (err.message || String(err)).split('\n')[0];
+    die(`message logged but NOT delivered to ${toAgent}: ${why}\n` +
+        `  the recipient will not see it. Fix herdr, then re-send:\n` +
+        `  node tools/muster.mjs --team ${requireTeamName()} send ${fromAgent} ${toAgent} "<message>" --task ${taskId}`);
   }
 }
 
@@ -950,6 +981,12 @@ function selftest() {
   loud();
   assert(badTeam, 'unknown team did not fail');
 
+  // Every work command must refuse --team-less invocation at the CLI, not just in requireTeam().
+  for (const c of 'claim release log new-task view status send brief orphans inbox learn add-lesson ls'.split(' ')) {
+    const r = spawnSync(process.execPath, [process.argv[1], c], { encoding: 'utf8' });
+    assert(r.status !== 0 && /--team/.test(r.stderr), `${c} did not reject a missing --team`);
+  }
+
   const sb = mkSandbox();
   const alpha = resolveTeam('alpha', sb), betaTeam = resolveTeam('beta', sb);
   assert(alpha.events !== betaTeam.events, 'two teams resolved to the same event log');
@@ -1012,11 +1049,16 @@ function selftest() {
     fs.writeFileSync(path.join(TEAM.dir, 'agents', `${r}.md`), `---\nname: ${r}\n---\n`);
   }
   newTask('msg-task', 'builder-backend', 'Answer the question', {});
-  send('builder-frontend', 'builder-backend', 'selftest msg', 'msg-task');
+  // No herdr in the test environment: delivery fails by design and must throw.
+  quiet();
+  let delivered = false;
+  try { send('builder-frontend', 'builder-backend', 'selftest msg', 'msg-task'); delivered = true; } catch { delivered = false; }
+  loud();
   const evs = loadEvents();
   const lastMsg = evs[evs.length - 1];
   assert(lastMsg.event === 'msg' && lastMsg.to === 'builder-backend', 'peer message not logged');
   assert(lastMsg.task === 'msg-task', 'peer message did not record its task');
+  assert(!delivered, 'send claimed delivery while herdr was unavailable');
 
   // Task JSON creation & boundary test
   const testTaskId = '__selftest_task__';
@@ -1194,13 +1236,75 @@ function selftest() {
   assert(staleOk, 'a lock with no owner file could not be released as stale');
   assert(!fs.existsSync(stuck), 'stale release left the lock behind');
 
+  // --- a builder cannot close a task without a review ---------------------
+  // The contract says every code change is reviewed by someone who did not
+  // write it. Nothing enforced that, and a live seat closed its task with no
+  // reviewer at all. `--reviewed-by` cites the reviewer's PASS.
+  const sb8 = mkSandbox();
+  fs.mkdirSync(path.join(sb8, 'alpha', 'agents'), { recursive: true });
+  for (const r of ['builder-frontend', 'reviewer']) {
+    fs.writeFileSync(path.join(sb8, 'alpha', 'agents', `${r}.md`), `---\nname: ${r}\n---\n`);
+  }
+  const savedT8 = TEAM;
+  TEAM = resolveTeam('alpha', sb8);
+  newTask('rev-1', 'builder-frontend', 'Change a file', { allow: 'src/**' });
+
+  quiet();
+  let closedUnreviewed = false;
+  try { log('rev-1', 'builder-frontend', 'done', { files: 'src/a.ts' }); } catch { closedUnreviewed = true; }
+  loud();
+  assert(closedUnreviewed, 'a builder closed a task with no review');
+
+  quiet();
+  let selfReview = false;
+  try { log('rev-1', 'builder-frontend', 'done', { files: 'src/a.ts', 'reviewed-by': 'builder-frontend' }); } catch { selfReview = true; }
+  loud();
+  assert(selfReview, 'a builder could approve its own work');
+
+  // a review that is not a PASS does not count
+  log('rev-1', 'reviewer', 'done', { verdict: 'FAIL', note: 'bad' });
+  quiet();
+  let failedReview = false;
+  try { log('rev-1', 'builder-frontend', 'done', { files: 'src/a.ts', 'reviewed-by': 'reviewer' }); } catch { failedReview = true; }
+  loud();
+  assert(failedReview, 'a FAILing review was accepted as approval');
+
+  log('rev-1', 'reviewer', 'done', { verdict: 'PASS', note: 'ok' });
+  let closed = false;
+  try { log('rev-1', 'builder-frontend', 'done', { files: 'src/a.ts', 'reviewed-by': 'reviewer' }); closed = true; } catch {}
+  assert(closed, 'a reviewed task could not be closed');
+
+  // reviewer and orchestrator close their own events without a review
+  let reviewerOwn = false;
+  try { log('rev-1', 'reviewer', 'done', { verdict: 'PASS' }); reviewerOwn = true; } catch {}
+  assert(reviewerOwn, 'reviewer needed a review of its own review');
+
+  TEAM = savedT8;
+  rmSandbox(sb8);
+
+  // --- delivery failure must be loud -------------------------------------
+  // A message that is logged but never delivered looks handled. If herdr is
+  // missing or fails, send() must exit nonzero so the caller knows.
+  const realPath = process.env.PATH;
+  process.env.PATH = path.join(path.dirname(sb), 'no-herdr-here');
+  quiet();
+  let undelivered = false;
+  try { send('builder-frontend', 'builder-backend', 'undeliverable', 'msg-task'); } catch { undelivered = true; }
+  loud();
+  process.env.PATH = realPath;
+  assert(undelivered, 'a message that could not be dispatched was reported as delivered');
+
   // --- idea 2: startup brief -------------------------------------------
   // A seat that restarted must learn who it is, what it holds, and what is
   // waiting for it, in one command.
   fs.writeFileSync(path.join(TEAM.dir, 'agents', 'runner.md'), '---\nname: runner\n---\n');
   claim('task-held', 'builder-frontend');
   newTask('brief-task', 'builder-frontend', 'Produce the build', {});
-  send('runner', 'builder-frontend', 'need the build output', 'brief-task');
+  // delivery is unavailable here; the message is still logged, which is what
+  // the brief reads.
+  quiet();
+  try { send('runner', 'builder-frontend', 'need the build output', 'brief-task'); } catch {}
+  loud();
   const brief = briefFor('builder-frontend');
   assert(brief.includes('builder-frontend'), 'brief does not name the seat');
   assert(brief.includes('task-held'), 'brief omits the lock this seat holds');
