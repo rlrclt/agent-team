@@ -1,0 +1,17 @@
+{
+  "id": "004",
+  "role": "builder-core",
+  "goal": "Make work-command dispatch data-driven so the --team test is structural, not regex-scraped",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "Task 003 FAILed a second time because workCommands() scrapes source text. Stop patching the regex. Reviewer proved four defects, all of which I reproduced. A1: a dispatch outside the switch is invisible. A2: a double-quoted case label is invisible. B: a correctly gated multi-line case is a FALSE POSITIVE and fails selftest on correct code. C: the hardcoded 13 means a new command is not covered without editing selftest, which is the opposite of what task 003 asked for. Replace the switch with a single WORK table whose entries are functions of (rest), dispatched through exactly one call site that invokes requireTeam() before the entry runs. Then requireTeam cannot be forgotten per-case, a double-quoted label is impossible, no multi-line body exists to misparse, and adding a command cannot escape the test. selftest then iterates Object.keys(WORK) at RUNTIME and spawns each without --team asserting nonzero exit AND /--team/ in stderr. Delete workCommands() and every regex over source. team and selftest stay outside the table and outside the test. Keep the default branch dying with usage. Keep the gate test that an ungated path is impossible by construction rather than by scraping."
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}

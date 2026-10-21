@@ -981,11 +981,13 @@ function selftest() {
   loud();
   assert(badTeam, 'unknown team did not fail');
 
-  // Every work command must refuse --team-less invocation at the CLI, not just in requireTeam().
-  for (const c of 'claim release log new-task view status send brief orphans inbox learn add-lesson ls'.split(' ')) {
+  // Every work command must refuse --team-less invocation at the CLI. The set is WORK itself:
+  // dispatch is one call site, so a command cannot be added ungated and cannot escape this loop.
+  for (const c of Object.keys(WORK)) {
     const r = spawnSync(process.execPath, [process.argv[1], c], { encoding: 'utf8' });
     assert(r.status !== 0 && /--team/.test(r.stderr), `${c} did not reject a missing --team`);
   }
+  assert(!Object.hasOwn(WORK, 'team') && !Object.hasOwn(WORK, 'selftest'), 'team/selftest must stay outside WORK');
 
   const sb = mkSandbox();
   const alpha = resolveTeam('alpha', sb), betaTeam = resolveTeam('beta', sb);
@@ -1396,30 +1398,32 @@ if (ti !== -1) {
   argv.splice(ti, 2);
 }
 const [cmd, ...rest] = argv;
-switch (cmd) {
-  case 'team': teamCmd(rest); break;
-  case 'selftest': selftest(); break;
-
-  // Work commands: every one requires --team
-  case 'claim': requireTeam(); claim(rest[0], rest[1]); break;
-  case 'release': requireTeam(); release(rest[0], rest[1], rest[2]); break;
-  case 'log': requireTeam(); log(rest[0], rest[1], rest[2], parseFlags(rest.slice(3))); break;
-  case 'new-task': requireTeam(); newTask(rest[0], rest[1], rest[2], parseFlags(rest.slice(3))); break;
-  case 'view': requireTeam(); view(rest[0], parseFlags(rest.slice(1))); break;
-  case 'status': requireTeam(); status(rest[0]); break;
-  case 'send': requireTeam(); send(rest[0], rest[1], rest[2], parseFlags(rest.slice(3)).task); break;
-  case 'brief': requireTeam(); console.log(briefFor(rest[0])); break;
-  case 'orphans': requireTeam(); {
+// Work commands: dispatched only through the single call site below, which calls requireTeam()
+// first. A per-case gate cannot be forgotten and selftest iterates these keys at runtime.
+// shortcut: a dispatch branch added outside WORK bypasses requireTeam(), add commands as WORK keys.
+const WORK = {
+  claim: (r) => claim(r[0], r[1]),
+  release: (r) => release(r[0], r[1], r[2]),
+  log: (r) => log(r[0], r[1], r[2], parseFlags(r.slice(3))),
+  'new-task': (r) => newTask(r[0], r[1], r[2], parseFlags(r.slice(3))),
+  view: (r) => view(r[0], parseFlags(r.slice(1))),
+  status: (r) => status(r[0]),
+  send: (r) => send(r[0], r[1], r[2], parseFlags(r.slice(3)).task),
+  brief: (r) => console.log(briefFor(r[0])),
+  orphans: () => {
     const o = orphanMessages();
     if (o.length === 0) console.log('no untracked messages');
     else { console.log(`untracked messages (${o.length}):`); for (const m of o) console.log(`  [${m.ts}] ${m.from} -> ${m.to}: ${m.msg}`); }
-    break;
-  }
-  case 'inbox': requireTeam(); inbox(rest[0]); break;
-  case 'learn': requireTeam(); learn(rest[0]); break;
-  case 'add-lesson': requireTeam(); addLesson(rest[0], rest[1], parseFlags(rest.slice(2))); break;
-  case 'ls': requireTeam(); ls(); break;
-  default: die('usage: node tools/muster.mjs [--team <name>] claim|release|log|new-task|view|status|send|inbox|learn|add-lesson|ls\n' +
-               '       node tools/muster.mjs team list|new|info|install|doctor|import-legacy\n' +
-               '       node tools/muster.mjs selftest');
-}
+  },
+  inbox: (r) => inbox(r[0]),
+  learn: (r) => learn(r[0]),
+  'add-lesson': (r) => addLesson(r[0], r[1], parseFlags(r.slice(2))),
+  ls: () => ls(),
+};
+
+if (cmd === 'team') teamCmd(rest);
+else if (cmd === 'selftest') selftest();
+else if (Object.hasOwn(WORK, cmd)) { requireTeam(); WORK[cmd](rest); }
+else die('usage: node tools/muster.mjs [--team <name>] claim|release|log|new-task|view|status|send|inbox|learn|add-lesson|ls\n' +
+         '       node tools/muster.mjs team list|new|info|install|doctor|import-legacy\n' +
+         '       node tools/muster.mjs selftest');

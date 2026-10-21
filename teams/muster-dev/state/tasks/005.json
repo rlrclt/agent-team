@@ -1,0 +1,17 @@
+{
+  "id": "005",
+  "role": "builder-core",
+  "goal": "Document the outside-table dispatch gap with a shortcut comment next to WORK",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "Reviewer PASS on 004 with one follow-up nit. Add exactly one comment line immediately above the WORK table in tools/muster.mjs saying a dispatch branch added outside WORK bypasses requireTeam() and that commands must be added as WORK keys. Follow the repo convention: shortcut: <the limit>, <when to upgrade>. No code change, no behaviour change, no test change. Keep the diff to one added line."
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}

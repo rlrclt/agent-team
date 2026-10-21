@@ -1,0 +1,28 @@
+{
+  "id": "003",
+  "role": "builder-core",
+  "goal": "Close the selftest --team loop so it fails for an unlisted or requireTeam-less work command",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "REVIEWER FAIL on task 002, finding is real: the loop at ~line 985 iterates a hand-typed list, so an unlisted command falls to default: die(usage), whose text contains --team and exits nonzero => false pass. Proven by adding 'case purge: requireTeam()",
+    "ls()",
+    "break",
+    "'.",
+    "1) Derive the work-command set from the source of main() itself (the case labels in its switch), not from a hand-typed literal. Exclude the non-work commands team and selftest. A regex over the file text is enough",
+    "no parser.",
+    "2) Assert every derived work case actually calls requireTeam() — so a new 'case purge:' that omits requireTeam() fails selftest.",
+    "3) Spawn each derived command with no --team and assert exit nonzero AND /--team/ in stderr, as now.",
+    "4) Add a negative self-check inside selftest: if a case labelled 'purge' that never calls requireTeam() were present, the derived-set assertion must fail. Simulate it in the sandbox or assert the derivation returns the expected count",
+    "do not leave a live bogus case.",
+    "5) Keep selftest under ~2s of added runtime.",
+    "6) done --note must state the real count of work commands, not an estimate."
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}

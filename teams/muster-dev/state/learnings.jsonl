@@ -1,0 +1,4 @@
+{"tag":"tasks","rule":"new-task --spec splits on ';' — never put semicolons or code snippets with semicolons in the spec, use commas or a separate spec paragraph","forbid":[],"date":"2026-10-21"}
+{"tag":"process","rule":"builders must not message the reviewer directly; the orchestrator dispatches reviews so they stay task-bound and --reviewed-by resolves","forbid":[],"date":"2026-10-21"}
+{"tag":"design","rule":"a test that scrapes source text with a regex is a false-confidence test: it passes for shapes it never sees. Test runtime data structures, not the text of the file","forbid":[],"date":"2026-10-21"}
+{"tag":"process","rule":"after a second FAIL on the same approach, change the approach, not the patch","forbid":[],"date":"2026-10-21"}
