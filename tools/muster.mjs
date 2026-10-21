@@ -263,9 +263,9 @@ function findTaskFile(id) {
   return match ? path.join(tasksDir, match) : null;
 }
 
-function loadLessons() {
-  if (fs.existsSync(requireTeam().learningsJsonl)) {
-    return fs.readFileSync(requireTeam().learningsJsonl, 'utf8')
+function loadLessons(team = requireTeam()) {
+  if (fs.existsSync(team.learningsJsonl)) {
+    return fs.readFileSync(team.learningsJsonl, 'utf8')
       .split('\n')
       .filter(Boolean)
       .map((l) => {
@@ -273,8 +273,8 @@ function loadLessons() {
       })
       .filter(Boolean);
   }
-  if (!fs.existsSync(requireTeam().learningsMd)) return [];
-  return fs.readFileSync(requireTeam().learningsMd, 'utf8')
+  if (!fs.existsSync(team.learningsMd)) return [];
+  return fs.readFileSync(team.learningsMd, 'utf8')
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.startsWith('- ['))
@@ -985,6 +985,7 @@ function getTeamState(team = requireTeam()) {
     seats: seatsList,
     tasks,
     events: events.slice(-50),
+    learnings: loadLessons(team),
   };
 }
 
@@ -1114,6 +1115,11 @@ td { padding: 6px 8px; border-bottom: 1px solid #131c2e; }
       <div class="side-title">การล็อคที่ถือครอง <span class="sub">/ Active Locks</span></div>
       <div id="side-locks-list" style="font-size:12px;color:var(--muted)">ไม่มีการล็อค</div>
     </div>
+
+    <div class="side-section">
+      <div class="side-title">คลังความรู้ <span class="sub">/ Knowledge Base</span> <span class="count" id="side-learning-count">0</span></div>
+      <div id="side-learnings-list" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+    </div>
   </aside>
 
   <!-- Main Content Area -->
@@ -1121,6 +1127,7 @@ td { padding: 6px 8px; border-bottom: 1px solid #131c2e; }
     <nav class="top-nav">
       <div class="tab-group">
         <button class="tab-btn active" id="btn-graph" onclick="switchTab('graph')">[GRAPH] <span class="sub">ผังเส้นทาง</span></button>
+        <button class="tab-btn" id="btn-knowledge" onclick="switchTab('knowledge')">[KNOWLEDGE] <span class="sub">คลังความรู้</span></button>
         <button class="tab-btn" id="btn-table" onclick="switchTab('table')">[TABLE] <span class="sub">ตาราง</span></button>
         <button class="tab-btn" id="btn-feed" onclick="switchTab('feed')">[FEED] <span class="sub">เหตุการณ์</span></button>
         <button class="tab-btn" id="btn-health" onclick="switchTab('health')">[HEALTH] <span class="sub">สุขภาพระบบ</span></button>
@@ -1154,6 +1161,37 @@ td { padding: 6px 8px; border-bottom: 1px solid #131c2e; }
             <g id="svg-edges"></g>
           </svg>
           <div id="graph-nodes"></div>
+        </div>
+      </div>
+
+      <!-- KNOWLEDGE GRAPHIFY TAB -->
+      <div class="tab-pane" id="pane-knowledge">
+        <div style="display:flex;gap:18px;height:540px;">
+          <div class="graph-viewport" id="knowledge-viewport" style="flex:1;height:100%;">
+            <svg id="knowledge-canvas" style="width:100%;height:100%;">
+              <defs>
+                <filter id="purple-glow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="3" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <marker id="arrow-k" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 1 L 10 5 L 0 9 z" fill="#c084fc" />
+                </marker>
+              </defs>
+              <g id="knowledge-edges"></g>
+            </svg>
+            <div id="knowledge-nodes"></div>
+          </div>
+          <!-- Node Inspector -->
+          <div class="card" id="knowledge-inspector" style="width:340px;flex-shrink:0;height:100%;overflow-y:auto;display:flex;flex-direction:column;margin-bottom:0;">
+            <div class="card-title">รายละเอียดความรู้ <span class="sub">/ Inspector</span></div>
+            <div id="inspector-content" style="font-size:12px;color:var(--muted);line-height:1.6;">
+              คลิกที่โหนดเพื่อตรวจสอบรายละเอียด<br>(Click any node to inspect details)
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1220,6 +1258,95 @@ function switchTab(name) {
   if (btn) btn.classList.add('active');
   if (pane) pane.classList.add('active');
   if (name === 'graph' && lastState) renderGraph(lastState);
+  if (name === 'knowledge' && lastState) renderKnowledge(lastState);
+}
+
+function renderKnowledge(s) {
+  const container = document.getElementById('knowledge-viewport');
+  const nodesDiv = document.getElementById('knowledge-nodes');
+  const svgEdges = document.getElementById('knowledge-edges');
+  if (!container || !nodesDiv || !svgEdges) return;
+
+  const learnings = s.learnings || [];
+  if (!learnings.length) {
+    svgEdges.innerHTML = '';
+    nodesDiv.innerHTML = '<div style="color:var(--muted);text-align:center;padding:120px 20px;">ไม่มีข้อมูลคลังความรู้ (ยังไม่มีการบันทึกด้วย add-lesson)<br><span class="sub">No knowledge base entries yet (run add-lesson)</span></div>';
+    return;
+  }
+
+  const w = container.clientWidth || 600;
+  const h = container.clientHeight || 500;
+  const tags = [...new Set(learnings.map(l => l.tag))];
+
+  const tagPos = {};
+  const tCount = tags.length;
+  tags.forEach((tag, ti) => {
+    const tx = tCount > 1 ? (w * 0.2 + (ti * (w * 0.6) / (tCount - 1))) : (w / 2);
+    const ty = 100;
+    tagPos[tag] = { x: tx, y: ty };
+  });
+
+  const rulePos = [];
+  const rCount = learnings.length;
+  learnings.forEach((l, ri) => {
+    const rx = rCount > 1 ? (w * 0.12 + (ri * (w * 0.76) / (rCount - 1))) : (w / 2);
+    const ry = 380;
+    rulePos.push({ x: rx, y: ry, item: l });
+  });
+
+  let svgPaths = '';
+  rulePos.forEach((rp) => {
+    const tp = tagPos[rp.item.tag] || { x: w / 2, y: 100 };
+    const cx1 = tp.x;
+    const cy1 = (tp.y + rp.y) / 2;
+    const cx2 = rp.x;
+    const cy2 = (tp.y + rp.y) / 2;
+    const d = 'M ' + tp.x + ' ' + tp.y + ' C ' + cx1 + ' ' + cy1 + ', ' + cx2 + ' ' + cy2 + ', ' + rp.x + ' ' + rp.y;
+    svgPaths += '<path d="' + d + '" class="flow-line reports" marker-end="url(#arrow-k)" />';
+  });
+  svgEdges.innerHTML = svgPaths;
+
+  let nodesHtml = '';
+  tags.forEach(tag => {
+    const pos = tagPos[tag];
+    const count = learnings.filter(l => l.tag === tag).length;
+    nodesHtml += '<div class="graph-node" style="left:' + pos.x + 'px;top:' + pos.y + 'px;border-color:#a855f7;box-shadow:0 0 14px rgba(168,85,247,0.3);cursor:pointer;" onclick="selectTag(\\'' + tag + '\\')">' +
+      '<div class="node-title" style="color:#c084fc;">#' + tag + '</div>' +
+      '<div class="node-sub">บทเรียน: <span style="color:#c084fc;font-weight:700;">' + count + '</span></div>' +
+      '</div>';
+  });
+
+  learnings.forEach((l, ri) => {
+    const pos = rulePos[ri];
+    const preview = l.rule.length > 28 ? l.rule.slice(0, 26) + '...' : l.rule;
+    nodesHtml += '<div class="graph-node" style="left:' + pos.x + 'px;top:' + pos.y + 'px;cursor:pointer;border-color:var(--cyan);" onclick="selectLearning(' + ri + ')">' +
+      '<div class="node-title" style="font-size:11px;">' + preview + '</div>' +
+      '<div class="node-sub">#' + l.tag + '</div>' +
+      '</div>';
+  });
+  nodesDiv.innerHTML = nodesHtml;
+}
+
+function selectTag(tag) {
+  if (!lastState) return;
+  const matches = (lastState.learnings || []).filter(l => l.tag === tag);
+  const insp = document.getElementById('inspector-content');
+  if (!insp) return;
+  insp.innerHTML = '<div style="margin-bottom:12px;"><span class="badge" style="background:#3b0764;color:#c084fc;border-color:#a855f7;font-size:13px;">#' + tag + '</span></div>' +
+    '<div class="meta-item"><span class="meta-label">จำนวนบทเรียน:</span><span class="meta-val">' + matches.length + '</span></div>' +
+    '<div style="margin-top:12px;font-weight:700;color:var(--text);margin-bottom:6px;">รายการกฎในหมวดหมู่นี้:</div>' +
+    matches.map((m, i) => '<div style="padding:6px;background:#0c121e;border-radius:4px;margin-bottom:6px;border:1px solid #131c2e;"><b>' + (i + 1) + '.</b> ' + m.rule + (m.forbid && m.forbid.length ? '<div style="color:var(--amber);margin-top:4px;">ห้าม: ' + m.forbid.join(', ') + '</div>' : '') + '</div>').join('');
+}
+
+function selectLearning(idx) {
+  if (!lastState || !lastState.learnings || !lastState.learnings[idx]) return;
+  const l = lastState.learnings[idx];
+  const insp = document.getElementById('inspector-content');
+  if (!insp) return;
+  insp.innerHTML = '<div style="margin-bottom:12px;"><span class="badge" style="background:#3b0764;color:#c084fc;border-color:#a855f7;font-size:13px;">#' + l.tag + '</span> ' + (l.date ? '<span class="sub">' + l.date + '</span>' : '') + '</div>' +
+    '<div style="margin-bottom:10px;"><div class="meta-label" style="margin-bottom:4px;">กฎบทเรียน / Rule:</div><div style="color:var(--text);font-weight:600;background:#0c121e;padding:8px;border-radius:4px;border:1px solid #1e293b;">' + l.rule + '</div></div>' +
+    (l.forbid && l.forbid.length ? '<div style="margin-bottom:10px;"><div class="meta-label" style="margin-bottom:4px;color:var(--amber);">ข้อห้าม / Forbidden Patterns:</div><div style="color:var(--amber);background:#1a1005;padding:6px 8px;border-radius:4px;border:1px solid #451a03;">' + l.forbid.join(', ') + '</div></div>' : '') +
+    '<div class="meta-item"><span class="meta-label">หมวดหมู่ / Category:</span><span class="meta-val">#' + l.tag + '</span></div>';
 }
 
 function renderGraph(s) {
@@ -1324,10 +1451,26 @@ function render(s) {
   document.getElementById('health-tasks').textContent = s.tasks.length;
   document.getElementById('health-edges').textContent = (s.edges || []).length;
 
-  // Graph render
+  // Sidebar learnings
+  const learnings = s.learnings || [];
+  const tags = [...new Set(learnings.map(l => l.tag))];
+  const sideCount = document.getElementById('side-learning-count');
+  if (sideCount) sideCount.textContent = learnings.length;
+  const sideList = document.getElementById('side-learnings-list');
+  if (sideList) {
+    sideList.innerHTML = tags.length
+      ? tags.map(t => '<span class="badge" style="cursor:pointer;background:#2e1065;color:#c084fc;border-color:#7e22ce;" onclick="switchTab(\\'knowledge\\');selectTag(\\'' + t + '\\')">#' + t + '</span>').join('')
+      : '<span style="color:var(--muted);font-size:11px;">ไม่มีข้อมูล / none</span>';
+  }
+
+  // Graph renders
   const graphPane = document.getElementById('pane-graph');
   if (graphPane && graphPane.classList.contains('active')) {
     renderGraph(s);
+  }
+  const knowPane = document.getElementById('pane-knowledge');
+  if (knowPane && knowPane.classList.contains('active')) {
+    renderKnowledge(s);
   }
 }
 
@@ -1982,12 +2125,16 @@ async function selftest() {
       'dashboard html missing OpenRig tab navigation [GRAPH]/[TABLE]/[FEED]/[HEALTH]');
     assert(htmlText.includes('<svg') && htmlText.includes('id="graph-canvas"'),
       'dashboard html missing SVG graph canvas for flow lines');
+    assert(htmlText.includes('[KNOWLEDGE]'), 'dashboard html missing [KNOWLEDGE] tab');
+    assert(htmlText.includes('id="knowledge-canvas"'), 'dashboard html missing knowledge-canvas SVG');
+    assert(htmlText.includes('id="knowledge-inspector"'), 'dashboard html missing knowledge-inspector element');
 
     const stateRes = await fetch(`http://127.0.0.1:${dPort}/api/state`);
     assert(stateRes.status === 200, 'dashboard GET /api/state did not return 200');
     const stateJson = await stateRes.json();
     assert(stateJson.team === 'alpha', 'dashboard stateJson wrong team');
     assert(Array.isArray(stateJson.seats) && Array.isArray(stateJson.tasks), 'dashboard stateJson missing seats or tasks');
+    assert(Array.isArray(stateJson.learnings), 'dashboard stateJson missing learnings array');
 
     const ac = new AbortController();
     const sseRes = await fetch(`http://127.0.0.1:${dPort}/api/events`, { signal: ac.signal });

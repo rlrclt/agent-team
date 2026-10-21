@@ -1,0 +1,17 @@
+{
+  "id": "014",
+  "role": "builder-core",
+  "goal": "Graphify Knowledge Base: interactive knowledge graph of learnings, tags, and rules in Web Dashboard",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "Graphify the team knowledge base (learnings/lessons) into an interactive knowledge network graph in the Web Dashboard."
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}
