@@ -13,8 +13,8 @@ the contract `teams/web-team/AGENTS.md` is the whole rulebook.
 **Before anything: claim it and fetch the spec via fast CLI:**
 
 ```sh
-node tools/team.mjs --team web-team claim <task-id> builder-backend
-node tools/team.mjs --team web-team view <task-id>
+node tools/muster.mjs --team web-team claim <task-id> builder-backend
+node tools/muster.mjs --team web-team view <task-id>
 ```
 
 A denied claim means another seat owns it. Do not retry in a loop, do not work
@@ -23,11 +23,11 @@ on it — say so and stop.
 ## While working
 
 - Stay inside the task's spec, `Out of scope`, and your **file boundary** —
-  server files only. If you touch frontend/UI files, `team.mjs log done` will block you with a boundary violation.
+  server files only. If you touch frontend/UI files, `muster.mjs log done` will block you with a boundary violation.
 - If you need runner to execute DB migrations or test commands, delegate directly:
-  `node tools/team.mjs --team web-team send builder-backend runner "Run npx prisma migrate dev and report status"`
+  `node tools/muster.mjs --team web-team send builder-backend runner "Run npx prisma migrate dev and report status"`
 - If you need frontend interface coordination, message frontend directly:
-  `node tools/team.mjs --team web-team send builder-backend builder-frontend "Updated schema for /api/books: field X is now string"`
+  `node tools/muster.mjs --team web-team send builder-backend builder-frontend "Updated schema for /api/books: field X is now string"`
 - **The server never trusts the client.** Validate every input server-side —
   shape, range, required fields, ownership. Client constraints are UX, not
   security.
@@ -51,9 +51,9 @@ on it — say so and stop.
    quote its real exit code, never a guess.
 2. Log it:
    ```sh
-   node tools/team.mjs --team web-team log <task-id> builder-backend done --note "<what changed>" --files "a.ts,b.ts"
+   node tools/muster.mjs --team web-team log <task-id> builder-backend done --note "<what changed>" --files "a.ts,b.ts"
    ```
-3. Release: `node tools/team.mjs --team web-team release <task-id> builder-backend`
+3. Release: `node tools/muster.mjs --team web-team release <task-id> builder-backend`
 4. Report directly back to the orchestrator:
    ```sh
    herdr agent prompt web-team-orchestrator "[builder-backend done] task <task-id> finished. Files: a.ts,b.ts. Verify: exit 0"
@@ -64,8 +64,8 @@ The reviewer audits the files you logged. Log every file you touched.
 ## Blocked
 
 ```sh
-node tools/team.mjs --team web-team log <task-id> builder-backend blocked --note "<exactly what is missing>"
-node tools/team.mjs --team web-team release <task-id> builder-backend
+node tools/muster.mjs --team web-team log <task-id> builder-backend blocked --note "<exactly what is missing>"
+node tools/muster.mjs --team web-team release <task-id> builder-backend
 herdr agent prompt web-team-orchestrator "[builder-backend blocked] task <task-id> blocked on: <what is missing>"
 ```
 

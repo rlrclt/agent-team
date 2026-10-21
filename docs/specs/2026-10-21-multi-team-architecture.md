@@ -9,9 +9,9 @@ The repository currently supports exactly one team. Everything team-specific
 hangs off fixed paths in `state/` (`events.jsonl`, `tasks/`, `locks/`,
 `learnings.jsonl`) and every naming assumption is hardcoded:
 
-- `tools/team.mjs` hardcodes `STATE = <repo>/state` and a `ROSTER` array of six
+- `tools/muster.mjs` hardcodes `STATE = <repo>/state` and a `ROSTER` array of six
   names inside `send()`.
-- `scripts/seat-up.ps1` builds a herdr workspace labelled `agent-team` from
+- `scripts/seat-up.ps1` builds a herdr workspace labelled `<team>` from
   `agents/*.md`, with no notion of which team or which project workspace the
   team serves.
 - `scripts/install.ps1` copies `agents/*.md` into `~/.claude/agents/`. Two teams
@@ -86,7 +86,7 @@ validates it):
 - `status`: `draft` → `ready`, set by `doctor` when the team passes. A `draft`
   team can be inspected but not seated or dispatched to.
 - `workspace`: the project repository the team is responsible for, relative to
-  the agent-team repo root (e.g. `workspace/pbmobile`). `doctor` requires the
+  the muster repo root (e.g. `workspace/pbmobile`). `doctor` requires the
   directory to exist and to be a git repo before `ready`.
 
 ### Role files and name collision
@@ -111,7 +111,7 @@ install time each team's role files are copied under a team-prefixed name:
   prefix applied mechanically). Commands an agent runs reference its own name;
   role files are written with `<role>` placeholders, and the team contract
   tells each agent its name equals its role file name.
-- `tools/team.mjs` keeps state identity unprefixed: agent names in events,
+- `tools/muster.mjs` keeps state identity unprefixed: agent names in events,
   locks, and messages stay scoped by team directory, so `pbmobile` can have a
   plain `builder-frontend` internally while another team has its own. The
   prefix exists only where Claude Code and herdr resolve names.
@@ -122,7 +122,7 @@ install time each team's role files are copied under a team-prefixed name:
 |---|---|---|
 | Claude Code role file (`~/.claude/agents/`) | `<team>-<role>.md`, frontmatter `name` matches | global directory, no scoping |
 | herdr seat / dispatch address | `<team>-<role>` | one multiplexer, many team workspaces |
-| `tools/team.mjs` state (events, locks, `send` from/to, verdict checks) | `<role>` | already scoped by `teams/<team>/state/` |
+| `tools/muster.mjs` state (events, locks, `send` from/to, verdict checks) | `<role>` | already scoped by `teams/<team>/state/` |
 
 Consequences the implementation must honour:
 
@@ -144,20 +144,20 @@ Consequences the implementation must honour:
   `agents/` file to Claude would produce wrong addresses — that is why
   `doctor` checks the installed copies rather than trusting the source.
 
-## CLI surface (`tools/team.mjs`)
+## CLI surface (`tools/muster.mjs`)
 
 New team-management group; all subcommands take the team from their argument,
 never from a global default:
 
 ```sh
-node tools/team.mjs team list
-node tools/team.mjs team new <name> --workspace <relative-path>
-node tools/team.mjs team info <name>        # roster, status, workspace, pending work
-node tools/team.mjs team doctor <name>
-node tools/team.mjs team install [<name>]   # wrapper target for install.ps1
-node tools/team.mjs team import-legacy <name> --workspace <relative-path>
-node tools/team.mjs --team <name> status|view|claim|release|log|send|inbox|learn|add-lesson|ls|new-task
-node tools/team.mjs selftest                # sandboxed, needs no team
+node tools/muster.mjs team list
+node tools/muster.mjs team new <name> --workspace <relative-path>
+node tools/muster.mjs team info <name>        # roster, status, workspace, pending work
+node tools/muster.mjs team doctor <name>
+node tools/muster.mjs team install [<name>]   # wrapper target for install.ps1
+node tools/muster.mjs team import-legacy <name> --workspace <relative-path>
+node tools/muster.mjs --team <name> status|view|claim|release|log|send|inbox|learn|add-lesson|ls|new-task
+node tools/muster.mjs selftest                # sandboxed, needs no team
 ```
 
 - `selftest` is the one exception: it builds its own temp sandbox teams and
@@ -181,7 +181,7 @@ node tools/team.mjs selftest                # sandboxed, needs no team
 
 ## Role boundaries across teams
 
-`ROLE_FORBIDDEN` in team.mjs is keyed by unprefixed role (`builder-frontend`
+`ROLE_FORBIDDEN` in muster.mjs is keyed by unprefixed role (`builder-frontend`
 etc.). Roles are pattern-matched by suffix: `pbmobile-builder-frontend` maps
 to the `builder-frontend` rule via the known role-suffix list
 (`orchestrator|builder-frontend|builder-backend|reviewer|qa|runner|designer|advisor`).
@@ -218,12 +218,12 @@ Gains a mandatory `-Team <name>` parameter (`-DryRun` retains its meaning):
   team workspaces coexist in herdr.
 - Seats each role with `claude --agent <name>-<role>`, pane order
   orchestrator-first as today.
-- Runs `node tools/team.mjs team doctor <name>` first; a nonzero doctor aborts
+- Runs `node tools/muster.mjs team doctor <name>` first; a nonzero doctor aborts
   the launch before any pane is created.
 
 ## install.ps1
 
-Becomes a thin PowerShell wrapper over `node tools/team.mjs install [<team>]`,
+Becomes a thin PowerShell wrapper over `node tools/muster.mjs install [<team>]`,
 so the copy, the collision rule, the `<team>` substitution and the frontmatter
 rewrite live in one implementation that `selftest` can call and test. Reasons:
 the logic is non-trivial (a silent overwrite is the failure mode this whole
@@ -251,7 +251,7 @@ edited freely per team. The machine-readable source of the roster is
 
 ## Migration of the existing team
 
-`node tools/team.mjs team import-legacy web-team --workspace <path>` is one
+`node tools/muster.mjs team import-legacy web-team --workspace <path>` is one
 command that leaves the team runnable, not merely moved.
 
 0. Refuses if the tree is dirty under `state/` or `agents/` — a migration
@@ -264,7 +264,7 @@ command that leaves the team runnable, not merely moved.
 3. Rewrites the moved text in place, line-oriented and idempotent (re-running
    it on already-rewritten text changes nothing): `state/AGENTS.md` →
    `teams/web-team/AGENTS.md`, `state/tasks` → `teams/web-team/state/tasks`,
-   every `node tools/team.mjs` command gains `--team web-team` in the right
+   every `node tools/muster.mjs` command gains `--team web-team` in the right
    position, `herdr agent prompt <role>` → `herdr agent prompt
    web-team-<role>`, and each role file's `Read state/AGENTS.md` →
    `Read teams/web-team/AGENTS.md`.
@@ -279,14 +279,14 @@ command that leaves the team runnable, not merely moved.
 ## What a team owns (workspace rule)
 
 One team = one project repository. `workspace` in `team.json` is a path
-relative to the agent-team repo root and may point outside it via `../`
+relative to the muster repo root and may point outside it via `../`
 (e.g. `../pbmobile`) — that is how a real project repo is used. `workspace/`
 inside this repo stays as the example/scratch location.
 
 - `doctor` resolves the path, requires the directory to exist, and requires it
   to be a git repository before setting `ready`.
-- Seats still launch with cwd at the agent-team repo root, because
-  `node tools/team.mjs` and `teams/<name>/...` resolve from there. Role files
+- Seats still launch with cwd at the muster repo root, because
+  `node tools/muster.mjs` and `teams/<name>/...` resolve from there. Role files
   and task specs carry the project path; the pane does not chdir.
 - Several repositories for one team is out of scope for v1. The honest answer
   is a second team, not a list-shaped schema nobody validated.
@@ -294,7 +294,7 @@ inside this repo stays as the example/scratch location.
 ## Repository layout after migration
 
 ```
-agent-team/
+muster/
 ├── teams/
 │   └── web-team/              # the migrated original team
 │       ├── team.json
@@ -303,7 +303,7 @@ agent-team/
 │       └── state/             # moved from state/
 ├── docs/                      # guides, rewritten for multi-team
 ├── scripts/                   # install.ps1, seat-up.ps1 (-Team) — thin wrappers
-├── tools/team.mjs
+├── tools/muster.mjs
 └── workspace/                 # example/scratch project repos
 ```
 
@@ -324,7 +324,7 @@ unchanged except for the launch-flag examples, which gain the prefix.
 
 ## Testing
 
-`selftest` runs in a real temp sandbox: it copies `tools/team.mjs`'s resolved
+`selftest` runs in a real temp sandbox: it copies `tools/muster.mjs`'s resolved
 root into a temp dir with a synthetic `teams/` and points `ROOT`/`TEAMS` there,
 rather than the current trick of rewriting `EVENTS` in place. Cases:
 
@@ -341,7 +341,7 @@ rather than the current trick of rewriting `EVENTS` in place. Cases:
    refuses a second run once the legacy layout is gone.
 
 `install.ps1` itself has no separate test: it is a one-line wrapper over
-`team.mjs install`, which case 6 covers.
+`muster.mjs install`, which case 6 covers.
 
 ## Verdict requested from the human
 

@@ -10,17 +10,17 @@
 param([string]$Team, [switch]$DryRun)
 
 $Root = Split-Path -Parent $PSScriptRoot
-if (-not $Team) { throw "usage: seat-up.ps1 -Team <name> [-DryRun]  (see: node tools/team.mjs team list)" }
+if (-not $Team) { throw "usage: seat-up.ps1 -Team <name> [-DryRun]  (see: node tools/muster.mjs team list)" }
 if ($Team -notmatch '^[a-z][a-z0-9-]{1,31}$') { throw "invalid team name '$Team'" }
 
 $TeamDir = Join-Path $Root "teams\$Team"
 $AgentsDir = Join-Path $TeamDir 'agents'
-if (-not (Test-Path $AgentsDir)) { throw "no teams/$Team/agents directory - run: node tools/team.mjs team list" }
+if (-not (Test-Path $AgentsDir)) { throw "no teams/$Team/agents directory - run: node tools/muster.mjs team list" }
 
 # Doctor is the gate: a team that is not ready must not be seated.
 Push-Location $Root
 try {
-    node tools/team.mjs team doctor $Team
+    node tools/muster.mjs team doctor $Team
     if ($LASTEXITCODE -ne 0) { throw "team '$Team' is not ready - fix what doctor reported above" }
 } finally {
     Pop-Location

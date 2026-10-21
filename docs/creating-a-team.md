@@ -41,7 +41,7 @@ Two seats is a legitimate team. Five is not a target.
 ### 2. Create the team directory
 
 ```powershell
-node tools/team.mjs team new pbmobile ../pbmobile
+node tools/muster.mjs team new pbmobile ../pbmobile
 ```
 
 This creates an empty team — `team.json`, `agents/`, and an empty `state/` — and
@@ -74,8 +74,8 @@ effort: low
 - ...
 
 ## Finishing
-node tools/team.mjs --team <team> log <task-id> <role> done --note "..." --files "a.ts"
-node tools/team.mjs --team <team> release <task-id> <role>
+node tools/muster.mjs --team <team> log <task-id> <role> done --note "..." --files "a.ts"
+node tools/muster.mjs --team <team> release <task-id> <role>
 ```
 
 Write `<team>` where the team name belongs. `team install` substitutes it, so the
@@ -117,7 +117,7 @@ The workspace must exist and be a git repository before the team can be `ready`.
 ### 5. Check, install, seat
 
 ```powershell
-node tools/team.mjs team doctor pbmobile                           # must pass
+node tools/muster.mjs team doctor pbmobile                           # must pass
 powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -Team pbmobile
 powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -Team pbmobile -DryRun
 powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -Team pbmobile
@@ -153,8 +153,8 @@ teams/design/AGENTS.md            roster has two rows; no orchestrator rules
 ```
 
 ```powershell
-node tools/team.mjs team doctor design
-node tools/team.mjs team install design
+node tools/muster.mjs team doctor design
+node tools/muster.mjs team install design
 scripts\seat-up.ps1 -Team design -DryRun
 # team: design (builder, reviewer)
 ```
@@ -166,7 +166,7 @@ herdr agent prompt design-builder "task 001 - <what to build>"
 herdr agent prompt design-reviewer "review task 001 - files are in the log"
 ```
 
-The builder still claims and logs through `tools/team.mjs`, so ownership and
+The builder still claims and logs through `tools/muster.mjs`, so ownership and
 history work exactly the same with two seats as with five.
 
 ## Worked example: a larger team
@@ -194,8 +194,8 @@ root, one command migrates it and rewrites the prose to the new paths:
 
 ```sh
 git status                       # must be clean under state/ and agents/
-node tools/team.mjs team import-legacy web-team ../my-app
-node tools/team.mjs team doctor web-team
+node tools/muster.mjs team import-legacy web-team ../my-app
+node tools/muster.mjs team doctor web-team
 ```
 
 The migration refuses to run on a dirty tree or a second time; `git revert` is
@@ -214,7 +214,7 @@ touches the multiplexer; it is pure filesystem.
 The state layer deliberately has no queue: work is dispatched by message and
 tracked by claim plus event log. If you later want OpenRig-style `create / claim
 / handoff` with a waiting state, add it as a second command group in
-`tools/team.mjs` writing to the same per-team `events.jsonl`, rather than a
+`tools/muster.mjs` writing to the same per-team `events.jsonl`, rather than a
 second log. One log that can be grepped beats two that must be reconciled.
 
 ## Pitfalls

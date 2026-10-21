@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-// agent-team state layer: atomic claim + append-only event log + machine JSON tasks + peer messaging + learnings.
-// usage: node tools/team.mjs claim <task-id> <agent>
-//        node tools/team.mjs release <task-id> <agent> [reason]
-//        node tools/team.mjs log <task-id> <agent> <event> [--note ..] [--files ..] [--verdict ..] [--override-boundary ..]
-//        node tools/team.mjs new-task <id> <role> "<goal>" [--allow ".."] [--deny ".."] [--spec ".."] [--verify ".."]
-//        node tools/team.mjs view <task-id> [--json] [--raw]
-//        node tools/team.mjs status [task-id]
-//        node tools/team.mjs send <from-agent> <to-agent> "<message>"
-//        node tools/team.mjs inbox <agent>
-//        node tools/team.mjs learn [tag/keyword]
-//        node tools/team.mjs add-lesson <tag> "<lesson text>" [--forbid "a,b"]
-//        node tools/team.mjs ls
-//        node tools/team.mjs selftest
+// muster state layer: atomic claim + append-only event log + machine JSON tasks + peer messaging + learnings.
+// usage: node tools/muster.mjs claim <task-id> <agent>
+//        node tools/muster.mjs release <task-id> <agent> [reason]
+//        node tools/muster.mjs log <task-id> <agent> <event> [--note ..] [--files ..] [--verdict ..] [--override-boundary ..]
+//        node tools/muster.mjs new-task <id> <role> "<goal>" [--allow ".."] [--deny ".."] [--spec ".."] [--verify ".."]
+//        node tools/muster.mjs view <task-id> [--json] [--raw]
+//        node tools/muster.mjs status [task-id]
+//        node tools/muster.mjs send <from-agent> <to-agent> "<message>"
+//        node tools/muster.mjs inbox <agent>
+//        node tools/muster.mjs learn [tag/keyword]
+//        node tools/muster.mjs add-lesson <tag> "<lesson text>" [--forbid "a,b"]
+//        node tools/muster.mjs ls
+//        node tools/muster.mjs selftest
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,13 +26,13 @@ const die = (m) => { console.error(m); process.exit(1); };
 const TEAM_NAME_RE = /^[a-z][a-z0-9-]{1,31}$/;
 
 function resolveTeam(name, root = TEAMS) {
-  if (!name) die('missing --team <name>. run: node tools/team.mjs team list');
+  if (!name) die('missing --team <name>. run: node tools/muster.mjs team list');
   if (!TEAM_NAME_RE.test(name)) {
     die(`invalid team name '${name}' (expected [a-z][a-z0-9-]{1,31})`);
   }
   const dir = path.join(root, name);
   if (!fs.existsSync(path.join(dir, 'team.json'))) {
-    die(`team not found: ${name}. run: node tools/team.mjs team list`);
+    die(`team not found: ${name}. run: node tools/muster.mjs team list`);
   }
   const state = path.join(dir, 'state');
   return {
@@ -47,7 +47,7 @@ function resolveTeam(name, root = TEAMS) {
 
 // Set once at argument parse time; every work command reads it through requireTeam().
 let TEAM = null;
-const requireTeam = () => TEAM || die('missing --team <name>. run: node tools/team.mjs team list');
+const requireTeam = () => TEAM || die('missing --team <name>. run: node tools/muster.mjs team list');
 
 
 function globToRegex(glob) {
@@ -139,7 +139,7 @@ function claim(id, agent) {
     if (e.code !== 'EEXIST') throw e;
     const held = ownerOf(id);
     die(`claim denied: ${id} is held by ${held ?? 'unknown'}${held === agent ? ' (you)' : ''}\n` +
-        `if that holder is dead, release it: node tools/team.mjs release ${id} ${agent} stale`);
+        `if that holder is dead, release it: node tools/muster.mjs release ${id} ${agent} stale`);
   }
   fs.writeFileSync(path.join(requireTeam().locks, id, 'owner'), agent);
   logEvent({ task: id, agent, event: 'claim' });
@@ -188,7 +188,7 @@ function parseFlags(argv) {
 }
 
 function findTaskFile(id) {
-  if (!id) die('usage: team.mjs view <task-id>');
+  if (!id) die('usage: muster.mjs view <task-id>');
   const tasksDir = path.join(requireTeam().state, 'tasks');
   if (!fs.existsSync(tasksDir)) return null;
 
@@ -232,7 +232,7 @@ function loadLessons() {
 
 function newTask(id, role, goal, flags) {
   if (!id || !role || !goal) {
-    die('usage: team.mjs new-task <id> <role> "<goal>" [--allow "a/**,b/**"] [--deny "c/**"] [--spec "s1;s2"] [--verify ".."]');
+    die('usage: muster.mjs new-task <id> <role> "<goal>" [--allow "a/**,b/**"] [--deny "c/**"] [--spec "s1;s2"] [--verify ".."]');
   }
   const tasksDir = path.join(requireTeam().state, 'tasks');
   fs.mkdirSync(tasksDir, { recursive: true });
@@ -378,7 +378,7 @@ function teamNames(root = TEAMS) {
 
 function teamList(root = TEAMS) {
   const names = teamNames(root);
-  if (names.length === 0) return console.log('no teams. run: node tools/team.mjs team new <name> <workspace>');
+  if (names.length === 0) return console.log('no teams. run: node tools/muster.mjs team new <name> <workspace>');
   for (const name of names) {
     const t = JSON.parse(fs.readFileSync(path.join(root, name, 'team.json'), 'utf8'));
     const tasksDir = path.join(root, name, 'state', 'tasks');
@@ -390,7 +390,7 @@ function teamList(root = TEAMS) {
 }
 
 function teamNew(name, workspace, root = TEAMS) {
-  if (!name || !workspace) die('usage: node tools/team.mjs team new <name> <workspace>');
+  if (!name || !workspace) die('usage: node tools/muster.mjs team new <name> <workspace>');
   if (!TEAM_NAME_RE.test(name)) die(`invalid team name '${name}' (expected [a-z][a-z0-9-]{1,31})`);
   const dir = path.join(root, name);
   if (fs.existsSync(path.join(dir, 'team.json'))) die(`team already exists: ${name}`);
@@ -491,7 +491,7 @@ function teamDoctor(name, root = TEAMS) {
     for (const task of fs.readdirSync(locksDir)) {
       const owner = teamOwnerOf(dir, task);
       if (owner && !roles.includes(owner)) {
-        warn(`lock ${task} held by '${owner}' which has no role file; release with: node tools/team.mjs --team ${name} release ${task} ${owner} stale`);
+        warn(`lock ${task} held by '${owner}' which has no role file; release with: node tools/muster.mjs --team ${name} release ${task} ${owner} stale`);
       }
     }
   }
@@ -520,7 +520,10 @@ function teamOwnerOf(teamDir, task) {
   catch { return null; }
 }
 
-const MARKER = (name) => `<!-- agent-team: ${name} -->`;
+const MARKER = (name) => `<!-- muster: ${name} -->`;
+// Files installed before the rename carry the old marker; still ours.
+const ownedBy = (text, name) =>
+  text.startsWith(MARKER(name)) || text.startsWith(`<!-- agent-team: ${name} -->`);
 
 function installTeam(name, dest, force, root = TEAMS) {
   const dir = path.join(root, name);
@@ -538,7 +541,7 @@ function installTeam(name, dest, force, root = TEAMS) {
 
     if (fs.existsSync(target)) {
       const existing = fs.readFileSync(target, 'utf8');
-      const ours = existing.startsWith(MARKER(name));
+      const ours = ownedBy(existing, name);
       if (!ours) { refused.push(target); continue; }
       if (!force) { skipped++; continue; }
     }
@@ -589,9 +592,9 @@ function rewriteLegacyText(text, name) {
   // Everything else under state/ keeps its shape, one level deeper.
   out = out.replace(once(`(?<!teams\\/${esc(name)}\\/)state\\/`), `teams/${name}/state/`);
 
-  // Every team.mjs command gains --team, unless it already has one.
-  out = out.replace(/node tools\/team\.mjs (?!team )(?!--team )(?!selftest)([a-z][\w-]*)/g,
-    (all, sub) => `node tools/team.mjs --team ${name} ${sub}`);
+  // Every muster.mjs command gains --team, unless it already has one.
+  out = out.replace(/node tools\/(?:team|muster)\.mjs (?!team )(?!--team )(?!selftest)([a-z][\w-]*)/g,
+    (all, sub) => `node tools/muster.mjs --team ${name} ${sub}`);
 
   // herdr addresses gain the team prefix.
   for (const role of ROLES) {
@@ -609,7 +612,7 @@ function rewriteLegacyText(text, name) {
 }
 
 function importLegacy(name, workspace) {
-  if (!name || !workspace) die('usage: node tools/team.mjs team import-legacy <name> <workspace>');
+  if (!name || !workspace) die('usage: node tools/muster.mjs team import-legacy <name> <workspace>');
   if (!TEAM_NAME_RE.test(name)) die(`invalid team name '${name}'`);
 
   const legacyState = path.join(ROOT, 'state');
@@ -690,22 +693,18 @@ function moveDir(from, to) {
 
 function teamCmd(args) {
   const [sub, ...a] = args;
+  const flags = parseFlags(a);
+  const pos = positional(a);
   if (sub === 'list') teamList();
-  else if (sub === 'new') teamNew(a[0], a[1]);
-  else if (sub === 'info') teamInfo(a[0]);
+  else if (sub === 'new') teamNew(pos[0], flags.workspace || pos[1]);
+  else if (sub === 'info') teamInfo(pos[0]);
   else if (sub === 'doctor') {
-    const r = teamDoctor(a[0]);
+    const r = teamDoctor(pos[0]);
     if (!r.ok) process.exit(1);
   }
-  else if (sub === 'install') {
-    const flags = parseFlags(a);
-    teamInstallCmd(positional(a), flags.dest, !!flags.force);
-  }
-  else if (sub === 'import-legacy') {
-    const a2 = positional(a);
-    importLegacy(a2[0], a2[1] || 'workspace');
-  }
-  else die('usage: team.mjs team list|new <name> <workspace>|info <name>|doctor <name>|install [<name>]|import-legacy <name> <workspace>');
+  else if (sub === 'install') teamInstallCmd(pos, flags.dest, !!flags.force);
+  else if (sub === 'import-legacy') importLegacy(pos[0], flags.workspace || 'workspace');
+  else die('usage: muster.mjs team list|new <name> --workspace <path>|info <name>|doctor <name>|install [<name>]|import-legacy <name> --workspace <path>');
 }
 
 function status(id) {
@@ -751,7 +750,7 @@ function status(id) {
 
 function send(fromAgent, toAgent, msg) {
   if (!fromAgent || !toAgent || !msg) {
-    die('usage: team.mjs send <from-agent> <to-agent> "<message>"');
+    die('usage: muster.mjs send <from-agent> <to-agent> "<message>"');
   }
   const roles = rolesOf(requireTeam().dir);
   assertRosterTarget(toAgent, roles);
@@ -771,7 +770,7 @@ function requireTeamName() {
 }
 
 function inbox(agent) {
-  if (!agent) die('usage: team.mjs inbox <agent>');
+  if (!agent) die('usage: muster.mjs inbox <agent>');
   const events = loadEvents();
   const msgs = events.filter((e) => e.event === 'msg' && e.to === agent);
   if (msgs.length === 0) {
@@ -785,7 +784,7 @@ function inbox(agent) {
 }
 
 function addLesson(tag, rule, flags = {}) {
-  if (!tag || !rule) die('usage: team.mjs add-lesson <tag> "<rule>" [--forbid "a,b"]');
+  if (!tag || !rule) die('usage: muster.mjs add-lesson <tag> "<rule>" [--forbid "a,b"]');
   const forbid = flags.forbid ? flags.forbid.split(',').map((s) => s.trim()).filter(Boolean) : [];
   const date = now().slice(0, 10);
   const entry = { tag, rule, forbid, date };
@@ -1018,7 +1017,7 @@ function selftest() {
   const sb4 = mkSandbox();
   fs.mkdirSync(path.join(sb4, 'alpha', 'agents'), { recursive: true });
   fs.writeFileSync(path.join(sb4, 'alpha', 'agents', 'builder.md'),
-    '---\nname: builder\n---\nnode tools/team.mjs --team <team> status\n');
+    '---\nname: builder\n---\nnode tools/muster.mjs --team <team> status\n');
   const dest = path.join(path.dirname(sb4), 'claude-agents');
   fs.rmSync(dest, { recursive: true, force: true });
   fs.mkdirSync(dest, { recursive: true });
@@ -1048,6 +1047,12 @@ function selftest() {
   assert(fs.readFileSync(path.join(dest, 'alpha-builder.md'), 'utf8') === 'someone else\n',
     'foreign file was modified');
 
+  // files installed before the rename are still owned by their team
+  fs.writeFileSync(path.join(dest, 'alpha-builder.md'), '<!-- agent-team: alpha -->\nlegacy\n');
+  installTeam('alpha', dest, true, sb4);
+  assert(fs.readFileSync(path.join(dest, 'alpha-builder.md'), 'utf8').includes('name: alpha-builder'),
+    'a pre-rename marker was treated as foreign');
+
   // force overwrites a file this team installed
   fs.rmSync(path.join(dest, 'alpha-builder.md'));
   installTeam('alpha', dest, false, sb4);
@@ -1064,14 +1069,14 @@ function selftest() {
   // --- legacy rewrite ---------------------------------------------------
   const src = [
     'Read `state/AGENTS.md` first.',
-    'node tools/team.mjs claim 001 builder',
-    'node tools/team.mjs --team <team> status',
+    'node tools/muster.mjs claim 001 builder',
+    'node tools/muster.mjs --team <team> status',
     'herdr agent prompt orchestrator "hi"',
   ].join('\n');
   const once = rewriteLegacyText(src, 'web-team');
   assert(once.includes('teams/web-team/AGENTS.md'), 'contract path not rewritten');
   assert(once.includes('--team web-team claim'), 'command not team-scoped');
-  assert(!once.includes('team.mjs --team web-team --team'), 'command rewritten twice');
+  assert(!once.includes('muster.mjs --team web-team --team'), 'command rewritten twice');
   assert(once.includes('herdr agent prompt web-team-orchestrator'), 'herdr address not prefixed');
   assert(rewriteLegacyText('herdr agent prompt <seat> "x"', 'web-team')
     .includes('herdr agent prompt web-team-<seat>'), 'seat placeholder not prefixed');
@@ -1085,7 +1090,7 @@ function selftest() {
 const argv = process.argv.slice(2);
 const ti = argv.indexOf('--team');
 if (ti !== -1) {
-  if (argv[ti + 1] === undefined) die('--team needs a name. run: node tools/team.mjs team list');
+  if (argv[ti + 1] === undefined) die('--team needs a name. run: node tools/muster.mjs team list');
   TEAM = resolveTeam(argv[ti + 1]);
   argv.splice(ti, 2);
 }
@@ -1106,7 +1111,7 @@ switch (cmd) {
   case 'learn': requireTeam(); learn(rest[0]); break;
   case 'add-lesson': requireTeam(); addLesson(rest[0], rest[1], parseFlags(rest.slice(2))); break;
   case 'ls': requireTeam(); ls(); break;
-  default: die('usage: node tools/team.mjs [--team <name>] claim|release|log|new-task|view|status|send|inbox|learn|add-lesson|ls\n' +
-               '       node tools/team.mjs team list|new|info|install|doctor|import-legacy\n' +
-               '       node tools/team.mjs selftest');
+  default: die('usage: node tools/muster.mjs [--team <name>] claim|release|log|new-task|view|status|send|inbox|learn|add-lesson|ls\n' +
+               '       node tools/muster.mjs team list|new|info|install|doctor|import-legacy\n' +
+               '       node tools/muster.mjs selftest');
 }

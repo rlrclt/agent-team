@@ -4,7 +4,7 @@ Read this file first. It is the shared truth for every agent on this team.
 
 **You are team `web-team`.** Every work command needs `--team web-team`; without
 it the tool refuses to run. Your herdr and `--agent` name is `web-team-<role>`,
-while the `<role>` you pass to `team.mjs log`/`claim`/`send` is unprefixed. This
+while the `<role>` you pass to `muster.mjs log`/`claim`/`send` is unprefixed. This
 team owns the repository named in `teams/web-team/team.json`.
 
 ## Two kinds of state (do not mix them)
@@ -12,7 +12,7 @@ team owns the repository named in `teams/web-team/team.json`.
 | | where | who writes | why |
 |---|---|---|---|
 | **Prose** — brief, spec, known context, out-of-scope | `teams/web-team/state/tasks/<id>.md` | the author of the task | narrative; agents read it far better than they query |
-| **State** — claimed / blocked / done / handoff | `teams/web-team/state/events.jsonl` | `tools/team.mjs` only | append-only, atomic; never hand-edit |
+| **State** — claimed / blocked / done / handoff | `teams/web-team/state/events.jsonl` | `tools/muster.mjs` only | append-only, atomic; never hand-edit |
 
 Never write status into the task `.md`. Never write prose into the `.jsonl`.
 Disk is the source of truth. Your memory is a hint.
@@ -23,10 +23,10 @@ Do not waste context reading raw task folders or parsing Markdown yourself. Use 
 
 ```sh
 # Read focused brief, spec, out-of-scope, and verify command (<30 lines)
-node tools/team.mjs --team web-team view <task-id>
+node tools/muster.mjs --team web-team view <task-id>
 
 # Check active claims and team progress summary
-node tools/team.mjs --team web-team status [task-id]
+node tools/muster.mjs --team web-team status [task-id]
 ```
 
 ## Claim before you work (mandatory)
@@ -35,18 +35,18 @@ A task has one owner at a time. Claiming is atomic — the winner is decided by
 the filesystem, not by guessing.
 
 ```sh
-node tools/team.mjs --team web-team claim <task-id> <your-agent-name>
+node tools/muster.mjs --team web-team claim <task-id> <your-agent-name>
 ```
 
 Denied means someone else owns it. Do not work on it, do not retry in a loop —
 ask the orchestrator or pick different work. When done, and in the same turn:
 
 ```sh
-node tools/team.mjs --team web-team log <task-id> <agent> done --note "..." --files "a.ts,b.ts"
-node tools/team.mjs --team web-team release <task-id> <agent>
+node tools/muster.mjs --team web-team log <task-id> <agent> done --note "..." --files "a.ts,b.ts"
+node tools/muster.mjs --team web-team release <task-id> <agent>
 ```
 
-`team.mjs log done` strictly checks role boundaries. A frontend agent touching `/api/` or a backend agent touching `/components/` will fail with exit 1.
+`muster.mjs log done` strictly checks role boundaries. A frontend agent touching `/api/` or a backend agent touching `/components/` will fail with exit 1.
 
 A lock left behind by a dead agent is released by the orchestrator with an
 explicit `release <id> <agent> stale`. Never release a lock you do not own.
@@ -54,20 +54,20 @@ explicit `release <id> <agent> stale`. Never release a lock you do not own.
 ## Talking to another agent (Peer Messaging & Reverse Reporting)
 
 Agents can and SHOULD interact directly when coordinating on interfaces, asking clarification, or delegating runs.
-Use `node tools/team.mjs --team web-team send` to message any peer (it delivers via herdr and logs the interaction to `events.jsonl` for full visibility):
+Use `node tools/muster.mjs --team web-team send` to message any peer (it delivers via herdr and logs the interaction to `events.jsonl` for full visibility):
 
 ```sh
 # Send a message / request to any peer
-node tools/team.mjs --team web-team send <your-agent> <target-seat> "<message>"
+node tools/muster.mjs --team web-team send <your-agent> <target-seat> "<message>"
 
 # Example: builder-frontend asking builder-backend for API response shape
-node tools/team.mjs --team web-team send builder-frontend builder-backend "Need response type for /api/books/claim"
+node tools/muster.mjs --team web-team send builder-frontend builder-backend "Need response type for /api/books/claim"
 
 # Example: builder-backend delegating a test run to runner
-node tools/team.mjs --team web-team send builder-backend runner "Run npm run test:db and report exit code"
+node tools/muster.mjs --team web-team send builder-backend runner "Run npm run test:db and report exit code"
 
 # Check recent messages addressed to you
-node tools/team.mjs --team web-team inbox <your-agent>
+node tools/muster.mjs --team web-team inbox <your-agent>
 
 # Status reporting back to orchestrator upon completion or blocker
 herdr agent prompt web-team-orchestrator "[<agent> done] task <task-id> finished. Files: ... Verify: ..."
@@ -80,13 +80,13 @@ When the human teaches a rule or corrects a mistake, record it so no agent ever 
 
 ```sh
 # Add a lesson taught by the human
-node tools/team.mjs --team web-team add-lesson <tag> "<what to do or what not to do>"
+node tools/muster.mjs --team web-team add-lesson <tag> "<what to do or what not to do>"
 
 # Query past lessons before coding or reviewing
-node tools/team.mjs --team web-team learn [tag/keyword]
+node tools/muster.mjs --team web-team learn [tag/keyword]
 ```
-`team.mjs view <task-id>` automatically detects and displays relevant past lessons at the top of the task spec.
-Reviewers must audit changes against `node tools/team.mjs --team web-team learn` — any regression to a known mistake is an automatic FAIL.
+`muster.mjs view <task-id>` automatically detects and displays relevant past lessons at the top of the task spec.
+Reviewers must audit changes against `node tools/muster.mjs --team web-team learn` — any regression to a known mistake is an automatic FAIL.
 
 ## Rules for ALL agents
 
@@ -99,7 +99,7 @@ Reviewers must audit changes against `node tools/team.mjs --team web-team learn`
    `herdr agent prompt web-team-orchestrator "[<agent> blocked] task <id> blocked on: ..."`
    Do not guess, do not ask the human directly — report to the orchestrator.
 5. If your context was compacted: do not trust memory. Re-read
-   `teams/web-team/state/tasks/*.md`, run `node tools/team.mjs --team web-team ls`, reconcile, report one line.
+   `teams/web-team/state/tasks/*.md`, run `node tools/muster.mjs --team web-team ls`, reconcile, report one line.
 6. English in code and comments. Thai is fine in conversation with the orchestrator.
 
 ## Orchestrator hard rules (binding)
@@ -127,7 +127,7 @@ files (or the reverse) is WARNED even if the code is good. The reviewer writes
 its own verdict event:
 
 ```sh
-node tools/team.mjs --team web-team log <task-id> reviewer done --verdict "PASS" --note "..."
+node tools/muster.mjs --team web-team log <task-id> reviewer done --verdict "PASS" --note "..."
 ```
 
 FAIL goes back to the builder. The orchestrator re-dispatches review at most once.
@@ -180,17 +180,17 @@ later want a seat to have no MCP, it must come from launch flags
 ## Layout
 
 ```
-agent-team/
+muster/
 ├── teams/web-team/
 │   ├── team.json      <- name, workspace, status
 │   ├── agents/        <- this team's role files (the roster)
 │   ├── AGENTS.md      <- this file
 │   └── state/
 │       ├── CONTRACT.md    <- per-feature API/data contract (created as needed)
-│       ├── events.jsonl   <- append-only state log (tools/team.mjs only)
+│       ├── events.jsonl   <- append-only state log (tools/muster.mjs only)
 │       ├── locks/         <- one dir per claimed task (the lock itself)
 │       └── tasks/         <- one .md per task: prose only
-├── tools/team.mjs     <- team management + claim / release / log / ls / selftest
+├── tools/muster.mjs     <- team management + claim / release / log / ls / selftest
 ├── workspace/         <- the project repo(s); git-initialized before any edit
 └── logs/              <- raw stdout/stderr per CLI run
 ```

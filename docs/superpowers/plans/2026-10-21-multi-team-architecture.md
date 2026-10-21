@@ -437,7 +437,7 @@ git commit -m "feat: idempotent legacy migration"
 ### Task 6: Migrate the real team and update docs
 
 **Files:**
-- Run: `node tools/team.mjs team import-legacy web-team --workspace <path>`
+- Run: `node tools/muster.mjs team import-legacy web-team --workspace <path>`
 - Modify: `README.md`, `docs/creating-a-team.md`, `docs/capability-scoping.md`
 - Add: `teams/web-team/team.json`, moved `teams/web-team/{agents,AGENTS.md,state}`
 
@@ -451,7 +451,7 @@ Expected: only `docs/specs/` and the plan (commit those first if needed). The mi
 
 - [ ] **Step 2: Run the migration**
 
-Run: `node tools/team.mjs team import-legacy web-team --workspace <the real project path>`
+Run: `node tools/muster.mjs team import-legacy web-team --workspace <the real project path>`
 Expected: files moved, rewrite applied, doctor report printed. If doctor fails, fix what it names and re-run `team doctor web-team`.
 
 - [ ] **Step 3: Verify the seeded state survived**

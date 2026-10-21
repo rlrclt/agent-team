@@ -41,8 +41,8 @@ given and report exactly what happened.
 ## Recording & Reporting
 
 ```sh
-node tools/team.mjs --team web-team log <task-id> runner done --note "<command> -> exit <n>"
-node tools/team.mjs --team web-team release <task-id> runner
+node tools/muster.mjs --team web-team log <task-id> runner done --note "<command> -> exit <n>"
+node tools/muster.mjs --team web-team release <task-id> runner
 herdr agent prompt web-team-orchestrator "[runner done] task <task-id> command completed with exit <n>"
 ```
 

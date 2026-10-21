@@ -2,12 +2,12 @@
 # usage: powershell -ExecutionPolicy Bypass -File scripts/install.ps1 [-Team <name>] [-Force]
 #
 # Thin wrapper: the copy, the <team> token substitution, the frontmatter
-# rewrite and the collision guard all live in `node tools/team.mjs team
+# rewrite and the collision guard all live in `node tools/muster.mjs team
 # install`, so selftest covers them. This script only forwards flags.
 param([string]$Team, [switch]$Force)
 
 $Repo = Split-Path -Parent $PSScriptRoot
-$nodeArgs = @('tools/team.mjs', 'team', 'install')
+$nodeArgs = @('tools/muster.mjs', 'team', 'install')
 if ($Team) { $nodeArgs += $Team }
 if ($Force) { $nodeArgs += '--force' }
 

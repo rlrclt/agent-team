@@ -36,7 +36,7 @@ yourself about to edit a file, stop — report it instead.
    or stack traces reaching a client.
 7. **Verify command** — actually run the command the task names. Report its real
    exit code. Never accept a builder's claim that it passed.
-8. **Past Learnings check** — run `node tools/team.mjs --team web-team learn` to verify the code does
+8. **Past Learnings check** — run `node tools/muster.mjs --team web-team learn` to verify the code does
    not repeat any mistake previously taught by the human. Re-introducing a known
    anti-pattern is Critical (FAIL).
 
@@ -56,8 +56,8 @@ Every finding carries a concrete fix. No filler, no pleasantries.
 ## Recording & Reporting
 
 ```sh
-node tools/team.mjs --team web-team log <task-id> reviewer done --verdict "PASS" --note "<one line>"
-node tools/team.mjs --team web-team release <task-id> reviewer
+node tools/muster.mjs --team web-team log <task-id> reviewer done --verdict "PASS" --note "<one line>"
+node tools/muster.mjs --team web-team release <task-id> reviewer
 herdr agent prompt web-team-orchestrator "[reviewer done] task <task-id> verdict: PASS. Note: <one line>"
 ```
 

@@ -1,4 +1,4 @@
-# agent-team
+# muster
 
 A high-performance, machine-first team of independent AI coding agents running in dedicated terminal panes. Teammates talk to each other directly, enforce deterministic boundaries, and continuously learn from human feedback — without heavy frameworks or background daemons.
 
@@ -7,7 +7,7 @@ One repository hosts any number of **independent teams**. Each team lives in `te
 Each teammate runs as its own long-lived process in its own terminal pane via [herdr](https://github.com/herdrdev/herdr), holding its own context, role identity, and memory. They coordinate through an atomic filesystem state layer and fast CLI tools.
 
 ```
-┌──────────────┐     tools/team.mjs send / herdr     ┌──────────────────┐
+┌──────────────┐     tools/muster.mjs send / herdr     ┌──────────────────┐
 │ orchestrator │ ──────────────────────────────────► │ builder-frontend │
 │  (pane 1)    │ ◄────────────────────────────────── │     (pane 2)     │
 └──────┬───────┘          status / blocker           └────────┬─────────┘
@@ -28,13 +28,13 @@ Each teammate runs as its own long-lived process in its own terminal pane via [h
 
 1. **Machine-First & Token-Efficient:**
    - Tasks and Playbooks are structured JSON / JSONL (`state/tasks/*.json`, `state/learnings.jsonl`).
-   - Fast CLI queries (`node tools/team.mjs view <id>`) return ultra-dense constraints (~8 lines) instead of forcing agents to read 100-line Markdown files.
+   - Fast CLI queries (`node tools/muster.mjs view <id>`) return ultra-dense constraints (~8 lines) instead of forcing agents to read 100-line Markdown files.
 2. **Deterministic Scope Enforcement:**
    - Role boundaries (`builder-frontend` cannot touch backend APIs; `builder-backend` cannot touch UI) and Task boundaries (`allow` / `deny` globs) are validated programmatically at `log done`. Violations exit code 1 immediately.
 3. **Continuous Learning (Playbook):**
-   - Teach the team once (`node tools/team.mjs add-lesson <tag> "<rule>"`). The rule is auto-injected whenever an agent views a relevant task, and the Reviewer fails code that repeats past mistakes.
+   - Teach the team once (`node tools/muster.mjs add-lesson <tag> "<rule>"`). The rule is auto-injected whenever an agent views a relevant task, and the Reviewer fails code that repeats past mistakes.
 4. **Peer-to-Peer Interaction:**
-   - Agents can message and delegate to peers directly (`node tools/team.mjs send <from> <to> "<msg>"`), with all exchanges logged to `events.jsonl` for auditability.
+   - Agents can message and delegate to peers directly (`node tools/muster.mjs send <from> <to> "<msg>"`), with all exchanges logged to `events.jsonl` for auditability.
 5. **Anti-Sycophancy (Human Challenge Gate):**
    - The Orchestrator actively challenges the human when instructions violate architecture, skip review/QA, or risk data loss, offering safe alternatives rather than blindly complying.
 6. **Zero-Daemon / Zero-Dependency:**
@@ -65,8 +65,8 @@ Each teammate runs as its own long-lived process in its own terminal pane via [h
 
 ### Step 1: Clone Repository
 ```powershell
-git clone https://github.com/rlrclt/agent-team.git
-cd agent-team
+git clone https://github.com/rlrclt/muster.git
+cd muster
 ```
 
 ### Step 2: Pick or Create a Team
@@ -77,13 +77,13 @@ work.
 
 ```powershell
 # See what exists
-node tools/team.mjs team list
+node tools/muster.mjs team list
 
 # Create a new team (empty; you write its role files)
-node tools/team.mjs team new pbmobile ../pbmobile
+node tools/muster.mjs team new pbmobile ../pbmobile
 
 # Or inspect the team that ships with this repo
-node tools/team.mjs team info web-team
+node tools/muster.mjs team info web-team
 ```
 
 A new team starts as `draft`. It becomes `ready` only when `doctor` passes — two
@@ -99,7 +99,7 @@ powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -Team web-team
 ### Step 4: Check and Launch the Team
 ```powershell
 # Health check: workspace, role files, installed copies, stale locks
-node tools/team.mjs team doctor web-team
+node tools/muster.mjs team doctor web-team
 
 # See the launch plan without starting anything
 powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -Team web-team -DryRun
@@ -124,50 +124,50 @@ The Orchestrator will:
 
 ---
 
-## CLI Reference (`tools/team.mjs`)
+## CLI Reference (`tools/muster.mjs`)
 
 Every command is fast, dependency-free, and machine-friendly. Work commands need
 `--team <name>`; there is no default team.
 
 ```sh
 # 0. Team management
-node tools/team.mjs team list
-node tools/team.mjs team new pbmobile ../pbmobile
-node tools/team.mjs team info pbmobile
-node tools/team.mjs team doctor pbmobile
+node tools/muster.mjs team list
+node tools/muster.mjs team new pbmobile ../pbmobile
+node tools/muster.mjs team info pbmobile
+node tools/muster.mjs team doctor pbmobile
 
 # 1. Create a machine-readable task (Orchestrator)
-node tools/team.mjs --team pbmobile new-task 001 builder-frontend "Add dark mode toggle" \
+node tools/muster.mjs --team pbmobile new-task 001 builder-frontend "Add dark mode toggle" \
   --allow "app/components/**,app/globals.css" \
   --deny "app/api/**,prisma/**" \
   --spec "Add button;Save cookie" \
   --verify "npm test"
 
 # 2. View task spec with auto-injected rules (<10 lines)
-node tools/team.mjs --team pbmobile view 001
+node tools/muster.mjs --team pbmobile view 001
 # Or get raw JSON:
-node tools/team.mjs --team pbmobile view 001 --json
+node tools/muster.mjs --team pbmobile view 001 --json
 
 # 3. Claim and release task locks (Atomic filesystem lock)
-node tools/team.mjs --team pbmobile claim 001 builder-frontend
-node tools/team.mjs --team pbmobile release 001 builder-frontend
+node tools/muster.mjs --team pbmobile claim 001 builder-frontend
+node tools/muster.mjs --team pbmobile release 001 builder-frontend
 
 # 4. Log progress with strict boundary enforcement
-node tools/team.mjs --team pbmobile log 001 builder-frontend done --note "Added button" --files "app/components/theme.tsx"
+node tools/muster.mjs --team pbmobile log 001 builder-frontend done --note "Added button" --files "app/components/theme.tsx"
 # Reviewer logging verdict:
-node tools/team.mjs --team pbmobile log 001 reviewer done --verdict PASS --note "All specs satisfied"
+node tools/muster.mjs --team pbmobile log 001 reviewer done --verdict PASS --note "All specs satisfied"
 
 # 5. Peer messaging (Talk directly to another agent)
-node tools/team.mjs --team pbmobile send builder-frontend builder-backend "Need response type for /api/user"
-node tools/team.mjs --team pbmobile inbox builder-backend
+node tools/muster.mjs --team pbmobile send builder-frontend builder-backend "Need response type for /api/user"
+node tools/muster.mjs --team pbmobile inbox builder-backend
 
 # 6. Continuous Learning (Playbook)
-node tools/team.mjs --team pbmobile add-lesson auth "Use httpOnly cookies for session JWT" --forbid "localStorage"
-node tools/team.mjs --team pbmobile learn auth
+node tools/muster.mjs --team pbmobile add-lesson auth "Use httpOnly cookies for session JWT" --forbid "localStorage"
+node tools/muster.mjs --team pbmobile learn auth
 
 # 7. Check team status in 5 lines
-node tools/team.mjs --team pbmobile status
-node tools/team.mjs --team pbmobile ls
+node tools/muster.mjs --team pbmobile status
+node tools/muster.mjs --team pbmobile ls
 ```
 
 ---
@@ -175,7 +175,7 @@ node tools/team.mjs --team pbmobile ls
 ## Project Structure
 
 ```
-agent-team/
+muster/
 ├── teams/
 │   └── web-team/           # one directory per team; the name is the team id
 │       ├── team.json       # name, workspace, status (draft | ready)
@@ -190,7 +190,7 @@ agent-team/
 │   ├── install.ps1     # Wrapper over `team install`; copies to ~/.claude/agents/
 │   └── seat-up.ps1     # -Team <name>; doctor gate, then start the herdr workspace
 ├── tools/
-│   └── team.mjs        # teams, state, boundary guard & communication engine
+│   └── muster.mjs        # teams, state, boundary guard & communication engine
 └── workspace/          # example project repos (git-ignored)
 ```
 

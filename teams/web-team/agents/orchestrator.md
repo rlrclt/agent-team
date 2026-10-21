@@ -30,13 +30,13 @@ team contract and it overrides anything you remember.
    context, numbered spec, out-of-scope, the exact verify command.
 5. Dispatch asynchronously to the seat that owns the work (non-blocking, do not
    use --wait):
-   `herdr agent prompt <seat> "Task <id>: run 'node tools/team.mjs --team web-team view <id>' for your spec."`
+   `herdr agent prompt <seat> "Task <id>: run 'node tools/muster.mjs --team web-team view <id>' for your spec."`
    `<seat>` is one of: `builder-frontend`, `builder-backend`, `runner`, `qa`,
    `reviewer`.
 6. Continue communicating with the human while the seat works. The seat
    reports back upon completion or blocker via `herdr agent prompt
    orchestrator`. On notification or on demand, reconcile against
-   `node tools/team.mjs --team web-team status` and `teams/web-team/state/events.jsonl`.
+   `node tools/muster.mjs --team web-team status` and `teams/web-team/state/events.jsonl`.
 7. Every code-changing task ends with a review by `reviewer` — someone who did
    not write it. Only then does the task close.
 

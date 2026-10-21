@@ -45,8 +45,8 @@ Handoff: <who acts next>
 ## Recording & Reporting
 
 ```sh
-node tools/team.mjs --team web-team log <task-id> qa done --note "3/4 paths pass; <failing path> fails" --verdict "FAIL"
-node tools/team.mjs --team web-team release <task-id> qa
+node tools/muster.mjs --team web-team log <task-id> qa done --note "3/4 paths pass; <failing path> fails" --verdict "FAIL"
+node tools/muster.mjs --team web-team release <task-id> qa
 herdr agent prompt web-team-orchestrator "[qa done] task <task-id> verdict: PASS (or FAIL). Note: <summary>"
 ```
 
