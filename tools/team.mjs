@@ -950,6 +950,21 @@ function selftest() {
 
   fs.rmSync(testTaskFile, { force: true });
 
+  // --- state isolation: one team's event never reaches another -------------
+  const sb5 = mkSandbox();
+  const isoAlpha = resolveTeam('alpha', sb5), isoBeta = resolveTeam('beta', sb5);
+  fs.writeFileSync(isoAlpha.events, '');
+  fs.writeFileSync(isoBeta.events, '');
+  const beforeIso = TEAM;
+  TEAM = isoAlpha;
+  logEvent({ task: 'iso-1', agent: 'builder-frontend', event: 'claim' });
+  TEAM = beforeIso;
+  assert(fs.readFileSync(isoAlpha.events, 'utf8').includes('iso-1'),
+    'alpha log missing its own event');
+  assert(!fs.readFileSync(isoBeta.events, 'utf8').includes('iso-1'),
+    'event leaked into beta');
+  rmSandbox(sb5);
+
   // --- team new --------------------------------------------------------
   const sb2 = mkSandbox();
   teamNew('gamma', 'workspace/gamma', sb2);
