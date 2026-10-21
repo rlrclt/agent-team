@@ -831,7 +831,7 @@ function ls() {
 
 // Returns a temp `teams/` directory root (the same shape resolveTeam expects).
 function mkSandbox() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-team-selftest-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'muster-selftest-'));
   const teams = path.join(dir, 'teams');
   for (const t of ['alpha', 'beta']) {
     fs.mkdirSync(path.join(teams, t, 'state', 'tasks'), { recursive: true });
