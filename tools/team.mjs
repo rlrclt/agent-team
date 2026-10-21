@@ -13,18 +13,42 @@
 //        node tools/team.mjs ls
 //        node tools/team.mjs selftest
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const STATE = path.join(ROOT, 'state');
-const LOCKS = path.join(STATE, 'locks');
-const EVENTS = path.join(STATE, 'events.jsonl');
-const LEARNINGS_JSONL = path.join(STATE, 'learnings.jsonl');
-const LEARNINGS_MD = path.join(STATE, 'LEARNINGS.md');
+const TEAMS = path.join(ROOT, 'teams');
 
 const now = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 const die = (m) => { console.error(m); process.exit(1); };
+
+const TEAM_NAME_RE = /^[a-z][a-z0-9-]{1,31}$/;
+
+function resolveTeam(name, root = TEAMS) {
+  if (!name) die('missing --team <name>. run: node tools/team.mjs team list');
+  if (!TEAM_NAME_RE.test(name)) {
+    die(`invalid team name '${name}' (expected [a-z][a-z0-9-]{1,31})`);
+  }
+  const dir = path.join(root, name);
+  if (!fs.existsSync(path.join(dir, 'team.json'))) {
+    die(`team not found: ${name}. run: node tools/team.mjs team list`);
+  }
+  const state = path.join(dir, 'state');
+  return {
+    dir,
+    state,
+    locks: path.join(state, 'locks'),
+    events: path.join(state, 'events.jsonl'),
+    learningsJsonl: path.join(state, 'learnings.jsonl'),
+    learningsMd: path.join(state, 'LEARNINGS.md'),
+  };
+}
+
+// Set once at argument parse time; every work command reads it through requireTeam().
+let TEAM = null;
+const requireTeam = () => TEAM || die('missing --team <name>. run: node tools/team.mjs team list');
+
 
 function globToRegex(glob) {
   const re = glob
@@ -99,25 +123,25 @@ function checkBoundary(agent, filesStr, override, taskId) {
 // One JSON object per line, appended with O_APPEND. Lines stay far under the
 // 4KB NTFS atomic-append window, so concurrent writers cannot interleave.
 function logEvent(ev) {
-  fs.appendFileSync(EVENTS, JSON.stringify({ ts: now(), ...ev }) + '\n');
+  fs.appendFileSync(requireTeam().events, JSON.stringify({ ts: now(), ...ev }) + '\n');
 }
 
 function ownerOf(id) {
-  try { return fs.readFileSync(path.join(LOCKS, id, 'owner'), 'utf8').trim(); }
+  try { return fs.readFileSync(path.join(requireTeam().locks, id, 'owner'), 'utf8').trim(); }
   catch { return null; }
 }
 
 function claim(id, agent) {
   try {
-    fs.mkdirSync(LOCKS, { recursive: true });
-    fs.mkdirSync(path.join(LOCKS, id)); // atomic: throws EEXIST if another agent got it
+    fs.mkdirSync(requireTeam().locks, { recursive: true });
+    fs.mkdirSync(path.join(requireTeam().locks, id)); // atomic: throws EEXIST if another agent got it
   } catch (e) {
     if (e.code !== 'EEXIST') throw e;
     const held = ownerOf(id);
     die(`claim denied: ${id} is held by ${held ?? 'unknown'}${held === agent ? ' (you)' : ''}\n` +
         `if that holder is dead, release it: node tools/team.mjs release ${id} ${agent} stale`);
   }
-  fs.writeFileSync(path.join(LOCKS, id, 'owner'), agent);
+  fs.writeFileSync(path.join(requireTeam().locks, id, 'owner'), agent);
   logEvent({ task: id, agent, event: 'claim' });
   console.log(`claimed ${id} by ${agent}`);
 }
@@ -126,7 +150,7 @@ function release(id, agent, reason = '') {
   const held = ownerOf(id);
   if (!held) die(`release denied: ${id} is not claimed`);
   if (held !== agent) die(`release denied: ${id} is held by ${held}, not ${agent}`);
-  fs.rmSync(path.join(LOCKS, id), { recursive: true });
+  fs.rmSync(path.join(requireTeam().locks, id), { recursive: true });
   logEvent({ task: id, agent, event: 'release', note: reason });
   console.log(`released ${id}`);
 }
@@ -165,7 +189,7 @@ function parseFlags(argv) {
 
 function findTaskFile(id) {
   if (!id) die('usage: team.mjs view <task-id>');
-  const tasksDir = path.join(STATE, 'tasks');
+  const tasksDir = path.join(requireTeam().state, 'tasks');
   if (!fs.existsSync(tasksDir)) return null;
 
   for (const ext of ['.json', '.md']) {
@@ -185,8 +209,8 @@ function findTaskFile(id) {
 }
 
 function loadLessons() {
-  if (fs.existsSync(LEARNINGS_JSONL)) {
-    return fs.readFileSync(LEARNINGS_JSONL, 'utf8')
+  if (fs.existsSync(requireTeam().learningsJsonl)) {
+    return fs.readFileSync(requireTeam().learningsJsonl, 'utf8')
       .split('\n')
       .filter(Boolean)
       .map((l) => {
@@ -194,8 +218,8 @@ function loadLessons() {
       })
       .filter(Boolean);
   }
-  if (!fs.existsSync(LEARNINGS_MD)) return [];
-  return fs.readFileSync(LEARNINGS_MD, 'utf8')
+  if (!fs.existsSync(requireTeam().learningsMd)) return [];
+  return fs.readFileSync(requireTeam().learningsMd, 'utf8')
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.startsWith('- ['))
@@ -210,7 +234,7 @@ function newTask(id, role, goal, flags) {
   if (!id || !role || !goal) {
     die('usage: team.mjs new-task <id> <role> "<goal>" [--allow "a/**,b/**"] [--deny "c/**"] [--spec "s1;s2"] [--verify ".."]');
   }
-  const tasksDir = path.join(STATE, 'tasks');
+  const tasksDir = path.join(requireTeam().state, 'tasks');
   fs.mkdirSync(tasksDir, { recursive: true });
   const taskFile = path.join(tasksDir, `${id}.json`);
   if (fs.existsSync(taskFile)) die(`task ${id} already exists`);
@@ -308,15 +332,15 @@ function view(id, flags) {
 }
 
 function loadEvents() {
-  if (!fs.existsSync(EVENTS)) return [];
-  return fs.readFileSync(EVENTS, 'utf8').trim().split('\n').filter(Boolean).map((l) => {
+  if (!fs.existsSync(requireTeam().events)) return [];
+  return fs.readFileSync(requireTeam().events, 'utf8').trim().split('\n').filter(Boolean).map((l) => {
     try { return JSON.parse(l); } catch { return null; }
   }).filter(Boolean);
 }
 
 function status(id) {
   const events = loadEvents();
-  const locks = fs.existsSync(LOCKS) ? fs.readdirSync(LOCKS) : [];
+  const locks = fs.existsSync(requireTeam().locks) ? fs.readdirSync(requireTeam().locks) : [];
 
   if (id) {
     const held = ownerOf(id);
@@ -336,7 +360,7 @@ function status(id) {
     return;
   }
 
-  const tasksDir = path.join(STATE, 'tasks');
+  const tasksDir = path.join(requireTeam().state, 'tasks');
   const taskFiles = fs.existsSync(tasksDir)
     ? fs.readdirSync(tasksDir).filter((f) => !f.startsWith('TEMPLATE.'))
     : [];
@@ -393,7 +417,7 @@ function addLesson(tag, rule, flags = {}) {
   const forbid = flags.forbid ? flags.forbid.split(',').map((s) => s.trim()).filter(Boolean) : [];
   const date = now().slice(0, 10);
   const entry = { tag, rule, forbid, date };
-  fs.appendFileSync(LEARNINGS_JSONL, JSON.stringify(entry) + '\n');
+  fs.appendFileSync(requireTeam().learningsJsonl, JSON.stringify(entry) + '\n');
   logEvent({ event: 'lesson_added', tag, note: rule, forbid });
   console.log(`lesson recorded under [${tag}] in learnings.jsonl`);
 }
@@ -421,56 +445,94 @@ function learn(query) {
 }
 
 function ls() {
-  const locks = fs.existsSync(LOCKS) ? fs.readdirSync(LOCKS) : [];
+  const locks = fs.existsSync(requireTeam().locks) ? fs.readdirSync(requireTeam().locks) : [];
   console.log(`claimed (${locks.length}):`);
   for (const id of locks) console.log(`  ${id}  <- ${ownerOf(id) ?? '?'}`);
-  const tasks = fs.existsSync(path.join(STATE, 'tasks'))
-    ? fs.readdirSync(path.join(STATE, 'tasks')).filter((f) => !f.startsWith('TEMPLATE.'))
+  const tasks = fs.existsSync(path.join(requireTeam().state, 'tasks'))
+    ? fs.readdirSync(path.join(requireTeam().state, 'tasks')).filter((f) => !f.startsWith('TEMPLATE.'))
     : [];
   console.log(`\ntask files (${tasks.length}): ${tasks.join(' ') || '-'}`);
-  if (!fs.existsSync(EVENTS)) return console.log('\nevents: none');
-  const lines = fs.readFileSync(EVENTS, 'utf8').trim().split('\n').slice(-10);
+  if (!fs.existsSync(requireTeam().events)) return console.log('\nevents: none');
+  const lines = fs.readFileSync(requireTeam().events, 'utf8').trim().split('\n').slice(-10);
   console.log('\nlast events:');
   for (const l of lines) console.log('  ' + l);
 }
 
+// Returns a temp `teams/` directory root (the same shape resolveTeam expects).
+function mkSandbox() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-team-selftest-'));
+  const teams = path.join(dir, 'teams');
+  for (const t of ['alpha', 'beta']) {
+    fs.mkdirSync(path.join(teams, t, 'state', 'tasks'), { recursive: true });
+    fs.writeFileSync(path.join(teams, t, 'team.json'),
+      JSON.stringify({ name: t, workspace: '.', status: 'draft' }));
+  }
+  return teams;
+}
+const rmSandbox = (teamsRoot) => fs.rmSync(path.dirname(teamsRoot), { recursive: true, force: true });
+
 function selftest() {
   const id = '__selftest__';
-  fs.rmSync(path.join(LOCKS, id), { recursive: true, force: true });
-  const before = fs.existsSync(EVENTS) ? fs.readFileSync(EVENTS, 'utf8') : '';
   const assert = (c, m) => { if (!c) die('SELFTEST FAIL: ' + m); };
+
+  const realExit = process.exit, realErr = console.error;
+  const quiet = () => {
+    process.exit = () => { throw new Error('exited'); };
+    console.error = () => {};
+  };
+  const loud = () => { process.exit = realExit; console.error = realErr; };
+
+  // --- team resolution -------------------------------------------------
+  quiet();
+  let noTeam = false;
+  TEAM = null;
+  try { requireTeam(); } catch { noTeam = true; }
+  loud();
+  assert(noTeam, 'a work command without --team did not fail');
+
+  quiet();
+  let badTeam = false;
+  try { resolveTeam('nope'); } catch { badTeam = true; }
+  loud();
+  assert(badTeam, 'unknown team did not fail');
+
+  const sb = mkSandbox();
+  const alpha = resolveTeam('alpha', sb), betaTeam = resolveTeam('beta', sb);
+  assert(alpha.events !== betaTeam.events, 'two teams resolved to the same event log');
+  assert(alpha.events.endsWith(path.join('teams', 'alpha', 'state', 'events.jsonl')), 'alpha event path wrong');
+
+  // The rest of the suite runs inside the sandbox's alpha team.
+  const savedTEAM = TEAM;
+  TEAM = alpha;
+  fs.writeFileSync(TEAM.events, '');
 
   claim(id, 'alice');
   assert(ownerOf(id) === 'alice', 'owner not recorded');
 
   let denied = false;
-  const realExit = process.exit, realErr = console.error;
-  process.exit = () => { throw new Error('exited'); };
-  console.error = () => {};
+  quiet();
   try { claim(id, 'bob'); } catch { denied = true; }
-  process.exit = realExit; console.error = realErr;
+  loud();
   assert(denied, 'double claim was allowed');
   assert(ownerOf(id) === 'alice', 'loser overwrote owner');
 
   let wrongRelease = false;
-  process.exit = () => { throw new Error('exited'); };
-  console.error = () => {};
+  quiet();
   try { release(id, 'bob'); } catch { wrongRelease = true; }
-  process.exit = realExit; console.error = realErr;
+  loud();
   assert(wrongRelease, 'non-owner released the lock');
 
   release(id, 'alice', 'selftest done');
-  assert(!fs.existsSync(path.join(LOCKS, id)), 'lock survived release');
+  assert(!fs.existsSync(path.join(requireTeam().locks, id)), 'lock survived release');
   claim(id, 'bob');
   assert(ownerOf(id) === 'bob', 're-claim after release failed');
   release(id, 'bob');
 
   // Boundary check selftest
   let boundaryBlocked = false;
-  process.exit = () => { throw new Error('exited'); };
-  console.error = () => {};
+  quiet();
   try { checkBoundary('builder-frontend', 'app/api/auth/route.ts', null, null); } catch { boundaryBlocked = true; }
-  process.exit = realExit; console.error = realErr;
+  loud();
   assert(boundaryBlocked, 'frontend touching api was not blocked');
 
   let boundaryAllowed = false;
@@ -482,10 +544,9 @@ function selftest() {
   assert(overrideWorked, 'override-boundary did not work');
 
   let reviewerBlocked = false;
-  process.exit = () => { throw new Error('exited'); };
-  console.error = () => {};
+  quiet();
   try { log(id, 'reviewer', 'done', {}); } catch { reviewerBlocked = true; }
-  process.exit = realExit; console.error = realErr;
+  loud();
   assert(reviewerBlocked, 'reviewer done without verdict was allowed');
 
   let reviewerAllowed = false;
@@ -500,37 +561,48 @@ function selftest() {
 
   // Task JSON creation & boundary test
   const testTaskId = '__selftest_task__';
-  const testTaskFile = path.join(STATE, 'tasks', `${testTaskId}.json`);
+  const testTaskFile = path.join(requireTeam().state, 'tasks', `${testTaskId}.json`);
   fs.rmSync(testTaskFile, { force: true });
   newTask(testTaskId, 'builder-frontend', 'Test Task', { allow: 'app/components/**', deny: 'app/api/**' });
   assert(fs.existsSync(testTaskFile), 'newTask failed to create JSON file');
 
   let taskDenyBlocked = false;
-  process.exit = () => { throw new Error('exited'); };
-  console.error = () => {};
+  quiet();
   try { checkBoundary('builder-frontend', 'app/api/route.ts', null, testTaskId); } catch { taskDenyBlocked = true; }
-  process.exit = realExit; console.error = realErr;
+  loud();
   assert(taskDenyBlocked, 'task-level deny was not enforced');
 
   fs.rmSync(testTaskFile, { force: true });
-  fs.writeFileSync(EVENTS, before); // selftest must not pollute the real log
-  fs.rmSync(path.join(LOCKS, id), { recursive: true, force: true });
+  fs.rmSync(path.join(requireTeam().locks, id), { recursive: true, force: true });
+  TEAM = savedTEAM;
+  rmSandbox(sb);
   console.log('SELFTEST PASS');
 }
 
-const [cmd, ...rest] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const ti = argv.indexOf('--team');
+if (ti !== -1) {
+  if (argv[ti + 1] === undefined) die('--team needs a name. run: node tools/team.mjs team list');
+  TEAM = resolveTeam(argv[ti + 1]);
+  argv.splice(ti, 2);
+}
+const [cmd, ...rest] = argv;
 switch (cmd) {
-  case 'claim': claim(rest[0], rest[1]); break;
-  case 'release': release(rest[0], rest[1], rest[2]); break;
-  case 'log': log(rest[0], rest[1], rest[2], parseFlags(rest.slice(3))); break;
-  case 'new-task': newTask(rest[0], rest[1], rest[2], parseFlags(rest.slice(3))); break;
-  case 'view': view(rest[0], parseFlags(rest.slice(1))); break;
-  case 'status': status(rest[0]); break;
-  case 'send': send(rest[0], rest[1], rest[2]); break;
-  case 'inbox': inbox(rest[0]); break;
-  case 'learn': learn(rest[0]); break;
-  case 'add-lesson': addLesson(rest[0], rest[1], parseFlags(rest.slice(2))); break;
-  case 'ls': ls(); break;
   case 'selftest': selftest(); break;
-  default: die('usage: team.mjs claim|release|log|new-task|view|status|send|inbox|learn|add-lesson|ls|selftest ...');
+
+  // Work commands: every one requires --team
+  case 'claim': requireTeam(); claim(rest[0], rest[1]); break;
+  case 'release': requireTeam(); release(rest[0], rest[1], rest[2]); break;
+  case 'log': requireTeam(); log(rest[0], rest[1], rest[2], parseFlags(rest.slice(3))); break;
+  case 'new-task': requireTeam(); newTask(rest[0], rest[1], rest[2], parseFlags(rest.slice(3))); break;
+  case 'view': requireTeam(); view(rest[0], parseFlags(rest.slice(1))); break;
+  case 'status': requireTeam(); status(rest[0]); break;
+  case 'send': requireTeam(); send(rest[0], rest[1], rest[2]); break;
+  case 'inbox': requireTeam(); inbox(rest[0]); break;
+  case 'learn': requireTeam(); learn(rest[0]); break;
+  case 'add-lesson': requireTeam(); addLesson(rest[0], rest[1], parseFlags(rest.slice(2))); break;
+  case 'ls': requireTeam(); ls(); break;
+  default: die('usage: node tools/team.mjs [--team <name>] claim|release|log|new-task|view|status|send|inbox|learn|add-lesson|ls\n' +
+               '       node tools/team.mjs team list|new|info|install|doctor|import-legacy\n' +
+               '       node tools/team.mjs selftest');
 }
