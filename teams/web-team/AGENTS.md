@@ -7,6 +7,18 @@ it the tool refuses to run. Your herdr and `--agent` name is `web-team-<role>`,
 while the `<role>` you pass to `muster.mjs log`/`claim`/`send` is unprefixed. This
 team owns the repository named in `teams/web-team/team.json`.
 
+## Re-orienting after a restart
+
+After a restart or a context compaction, do not guess and do not trust memory.
+One command tells you who you are, what you hold, and who is waiting on you:
+
+```sh
+node tools/muster.mjs --team web-team brief <your-role>
+```
+
+It prints the team, your herdr address, the contract path, the tasks you hold a
+lock on, messages addressed to you, and your own last events.
+
 ## Two kinds of state (do not mix them)
 
 | | where | who writes | why |
@@ -57,17 +69,21 @@ Agents can and SHOULD interact directly when coordinating on interfaces, asking 
 Use `node tools/muster.mjs --team web-team send` to message any peer (it delivers via herdr and logs the interaction to `events.jsonl` for full visibility):
 
 ```sh
-# Send a message / request to any peer
-node tools/muster.mjs --team web-team send <your-agent> <target-seat> "<message>"
+# Send a message / request to any peer. --task is mandatory: a message that
+# hands out work must cite the task it belongs to, so it can be tracked.
+node tools/muster.mjs --team web-team send <your-agent> <target-seat> "<message>" --task <task-id>
 
 # Example: builder-frontend asking builder-backend for API response shape
-node tools/muster.mjs --team web-team send builder-frontend builder-backend "Need response type for /api/books/claim"
+node tools/muster.mjs --team web-team send builder-frontend builder-backend "Need response type for /api/books/claim" --task 004
 
 # Example: builder-backend delegating a test run to runner
-node tools/muster.mjs --team web-team send builder-backend runner "Run npm run test:db and report exit code"
+node tools/muster.mjs --team web-team send builder-backend runner "Run npm run test:db and report exit code" --task 004
 
 # Check recent messages addressed to you
 node tools/muster.mjs --team web-team inbox <your-agent>
+
+# Find messages that named no task (should always be empty)
+node tools/muster.mjs --team web-team orphans
 
 # Status reporting back to orchestrator upon completion or blocker
 herdr agent prompt web-team-orchestrator "[<agent> done] task <task-id> finished. Files: ... Verify: ..."

@@ -769,13 +769,52 @@ function herdrPrompt(agentName, message) {
   return execFileSync(bin, args, { stdio: 'ignore' });
 }
 
-function send(fromAgent, toAgent, msg) {
+// A seat that restarted re-orients with one command: who am I, what do I hold,
+// what is waiting for me, what happened last.
+function briefFor(role) {
+  const team = requireTeam();
+  const teamName = path.basename(team.dir);
+  const roles = rolesOf(team.dir);
+  assertRosterTarget(role, roles);
+  const events = loadEvents();
+  const held = fs.existsSync(team.locks) ? fs.readdirSync(team.locks).filter((id) => ownerOf(id) === role) : [];
+  const waiting = events.filter((e) => e.event === 'msg' && e.to === role).slice(-5);
+  const last = events.filter((e) => e.agent === role).slice(-5);
+
+  const out = [
+    `TEAM: ${teamName} | YOU: ${role} | herdr/agent name: ${teamName}-${role}`,
+    `CONTRACT: teams/${teamName}/AGENTS.md (read it first)`,
+    `WORK: node tools/muster.mjs --team ${teamName} ...`,
+    `HELD: ${held.length ? held.join(', ') : 'nothing'}`,
+    'WAITING:',
+    ...(waiting.length ? waiting.map((m) => `  [${m.ts}] from ${m.from}: ${m.msg}`) : ['  none']),
+    'YOUR LAST EVENTS:',
+    ...(last.length ? last.map((e) => `  ${e.ts} | ${e.task ?? '-'} ${e.event}`) : ['  none']),
+  ];
+  return out.join('\n');
+}
+
+// A delegated message that cites no task is work nobody can track.
+function orphanMessages() {
+  const events = loadEvents();
+  const tasks = new Set(
+    fs.existsSync(path.join(requireTeam().state, 'tasks'))
+      ? fs.readdirSync(path.join(requireTeam().state, 'tasks')).map((f) => f.replace(/\.(json|md)$/, ''))
+      : []
+  );
+  return events.filter((e) => e.event === 'msg' && !e.task);
+}
+
+function send(fromAgent, toAgent, msg, taskId) {
   if (!fromAgent || !toAgent || !msg) {
-    die('usage: muster.mjs send <from-agent> <to-agent> "<message>"');
+    die('usage: muster.mjs send <from-agent> <to-agent> "<message>" --task <id>');
   }
   const roles = rolesOf(requireTeam().dir);
   assertRosterTarget(toAgent, roles);
-  logEvent({ event: 'msg', from: fromAgent, to: toAgent, msg });
+  // Delegated work must name the task it belongs to, so it can be tracked.
+  if (!taskId) die(`send requires --task <id>: a message that hands out work must cite the task. See: node tools/muster.mjs --team ${requireTeamName()} ls`);
+  if (!findTaskFile(taskId)) die(`unknown task '${taskId}'. Create it first: node tools/muster.mjs --team ${requireTeamName()} new-task ${taskId} <role> "<goal>"`);
+  logEvent({ event: 'msg', from: fromAgent, to: toAgent, task: taskId, msg });
 
   try {
     herdrPrompt(`${requireTeamName()}-${toAgent}`, `[from ${fromAgent}] ${msg}`);
@@ -949,10 +988,12 @@ function selftest() {
   for (const r of ['builder-frontend', 'builder-backend']) {
     fs.writeFileSync(path.join(TEAM.dir, 'agents', `${r}.md`), `---\nname: ${r}\n---\n`);
   }
-  send('builder-frontend', 'builder-backend', 'selftest msg');
+  newTask('msg-task', 'builder-backend', 'Answer the question', {});
+  send('builder-frontend', 'builder-backend', 'selftest msg', 'msg-task');
   const evs = loadEvents();
   const lastMsg = evs[evs.length - 1];
   assert(lastMsg.event === 'msg' && lastMsg.to === 'builder-backend', 'peer message not logged');
+  assert(lastMsg.task === 'msg-task', 'peer message did not record its task');
 
   // Task JSON creation & boundary test
   const testTaskId = '__selftest_task__';
@@ -1093,6 +1134,38 @@ function selftest() {
   assert(staleOk, 'a lock with no owner file could not be released as stale');
   assert(!fs.existsSync(stuck), 'stale release left the lock behind');
 
+  // --- idea 2: startup brief -------------------------------------------
+  // A seat that restarted must learn who it is, what it holds, and what is
+  // waiting for it, in one command.
+  fs.writeFileSync(path.join(TEAM.dir, 'agents', 'runner.md'), '---\nname: runner\n---\n');
+  claim('task-held', 'builder-frontend');
+  newTask('brief-task', 'builder-frontend', 'Produce the build', {});
+  send('runner', 'builder-frontend', 'need the build output', 'brief-task');
+  const brief = briefFor('builder-frontend');
+  assert(brief.includes('builder-frontend'), 'brief does not name the seat');
+  assert(brief.includes('task-held'), 'brief omits the lock this seat holds');
+  assert(brief.includes('need the build output'), 'brief omits pending messages');
+  assert(brief.includes('alpha-builder-frontend'), 'brief omits the herdr address');
+  release('task-held', 'builder-frontend');
+
+  // --- idea 3: delegated messages must cite a task -----------------------
+  quiet();
+  let noTask = false;
+  try { send('builder-frontend', 'runner', 'do the thing'); } catch { noTask = true; }
+  loud();
+  assert(noTask, 'a work message without --task was accepted');
+
+  quiet();
+  let badTask = false;
+  try { send('builder-frontend', 'runner', 'do the thing', 'no-such-task'); } catch { badTask = true; }
+  loud();
+  assert(badTask, 'a message citing a nonexistent task was accepted');
+
+  assert(orphanMessages().length === 0, 'a message with a task was counted as orphaned');
+  // A hand-written legacy line with no task is what the scan exists to find.
+  fs.appendFileSync(TEAM.events, JSON.stringify({ ts: now(), event: 'msg', from: 'runner', to: 'qa', msg: 'old' }) + '\n');
+  assert(orphanMessages().length === 1, 'the orphan scan missed an untracked message');
+
   // a CRLF role file (git on Windows) must be prefixed too
   fs.writeFileSync(path.join(sb4, 'alpha', 'agents', 'qa.md'),
     '---\r\nname: qa\r\ndescription: x\r\n---\r\nbody\r\n');
@@ -1170,7 +1243,14 @@ switch (cmd) {
   case 'new-task': requireTeam(); newTask(rest[0], rest[1], rest[2], parseFlags(rest.slice(3))); break;
   case 'view': requireTeam(); view(rest[0], parseFlags(rest.slice(1))); break;
   case 'status': requireTeam(); status(rest[0]); break;
-  case 'send': requireTeam(); send(rest[0], rest[1], rest[2]); break;
+  case 'send': requireTeam(); send(rest[0], rest[1], rest[2], parseFlags(rest.slice(3)).task); break;
+  case 'brief': requireTeam(); console.log(briefFor(rest[0])); break;
+  case 'orphans': requireTeam(); {
+    const o = orphanMessages();
+    if (o.length === 0) console.log('no untracked messages');
+    else { console.log(`untracked messages (${o.length}):`); for (const m of o) console.log(`  [${m.ts}] ${m.from} -> ${m.to}: ${m.msg}`); }
+    break;
+  }
   case 'inbox': requireTeam(); inbox(rest[0]); break;
   case 'learn': requireTeam(); learn(rest[0]); break;
   case 'add-lesson': requireTeam(); addLesson(rest[0], rest[1], parseFlags(rest.slice(2))); break;

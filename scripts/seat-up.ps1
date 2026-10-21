@@ -1,5 +1,8 @@
 # Bring one team up in its own herdr workspace.
-# usage: powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -Team <name> [-DryRun]
+# usage: powershell -ExecutionPolicy Bypass -File scripts/seat-up.ps1 -Team <name> [-Seat <role>] [-DryRun] [-Replace]
+#
+# -Seat adds one role to a team that is already running, instead of seating the
+# whole team again. Omit it to bring the whole team up.
 #
 # The team is whatever role files sit in teams/<name>/agents/ - there is no
 # separate roster list to keep in sync. Every seat runs:
@@ -7,7 +10,7 @@
 # so two teams' seats can never collide in herdr or in ~/.claude/agents.
 # MCP servers, skills and plugins all come from the user's global config
 # (~/.claude), so there is no per-seat settings file.
-param([string]$Team, [switch]$DryRun, [switch]$Replace)
+param([string]$Team, [string]$Seat, [switch]$DryRun, [switch]$Replace)
 
 $Root = Split-Path -Parent $PSScriptRoot
 if (-not $Team) { throw "usage: seat-up.ps1 -Team <name> [-DryRun]  (see: node tools/muster.mjs team list)" }
@@ -31,9 +34,21 @@ $Seats = @(Get-ChildItem $AgentsDir -Filter *.md |
            ForEach-Object { $_.BaseName })
 if ($Seats.Count -eq 0) { throw "teams/$Team/agents holds no .md role files" }
 
+# -Seat adds one role to a team that is already running.
+$addOnly = $false
+if ($Seat) {
+    if ($Seats -notcontains $Seat) {
+        throw "no role '$Seat' in teams/$Team/agents (have: $($Seats -join ', '))"
+    }
+    $Seats = @($Seat)
+    $addOnly = $true
+}
+
 # The seat you talk to belongs in pane 1, so put it first if the team has one.
-$first = $Seats | Where-Object { $_ -eq 'orchestrator' }
-if ($first) { $Seats = @($first) + @($Seats | Where-Object { $_ -ne 'orchestrator' }) }
+if (-not $addOnly) {
+    $first = $Seats | Where-Object { $_ -eq 'orchestrator' }
+    if ($first) { $Seats = @($first) + @($Seats | Where-Object { $_ -ne 'orchestrator' }) }
+}
 
 foreach ($s in $Seats) {
     $roleFile = Join-Path $HOME ".claude\agents\$Team-$s.md"
@@ -43,7 +58,9 @@ Write-Host "team: $Team ($($Seats -join ', '))"
 
 # Refuse to create a second workspace for a team that is already up: two sets
 # of seats on one state directory race each other for the same task locks.
-if (-not $DryRun -and -not $Replace -and (Get-Command herdr -ErrorAction SilentlyContinue)) {
+# With -Seat, reuse the running workspace and add the one seat to it.
+$ws = $null
+if (-not $DryRun -and (Get-Command herdr -ErrorAction SilentlyContinue)) {
     try {
         $existing = (herdr workspace list | ConvertFrom-Json).result.workspaces |
                     Where-Object { $_.label -eq $Team }
@@ -51,18 +68,28 @@ if (-not $DryRun -and -not $Replace -and (Get-Command herdr -ErrorAction Silentl
             $running = (herdr agent list | ConvertFrom-Json).result.agents |
                        Where-Object { $_.workspace_id -eq $existing.workspace_id }
             if ($running) {
-                Write-Host "team '$Team' is already up in workspace $($existing.workspace_id):" -ForegroundColor Yellow
-                foreach ($a in $running) { Write-Host ("  {0,-24} {1}" -f $a.name, $a.agent_status) }
-                throw "refusing to seat a second copy. Pass -Replace to force, or bring it down first."
+                $already = $running | Where-Object { $_.name -eq "$Team-$Seat" }
+                if ($addOnly -and -not $already) {
+                    $ws = $existing.workspace_id
+                    Write-Host "adding $Team-$Seat to running workspace $ws" -ForegroundColor Yellow
+                } elseif ($addOnly) {
+                    throw "$Team-$Seat is already running in workspace $ws"
+                } elseif (-not $Replace) {
+                    Write-Host "team '$Team' is already up in workspace $($existing.workspace_id):" -ForegroundColor Yellow
+                    foreach ($a in $running) { Write-Host ("  {0,-24} {1}" -f $a.name, $a.agent_status) }
+                    throw "refusing to seat a second copy. Pass -Replace to force, or -Seat <role> to add one."
+                }
             }
         }
     } catch {
-        if ($_.Exception.Message -like 'refusing*') { throw }
+        if ($_.Exception.Message -like 'refusing*' -or $_.Exception.Message -like '*already running*') { throw }
         # a failed listing must not block the launch
     }
 }
 
-if ($DryRun) {
+if ($ws) {
+    # reuse the running workspace; nothing to create
+} elseif ($DryRun) {
     Write-Host "  would: herdr workspace create --cwd $Root --label $Team --no-focus"
     $ws = 'wX'
 } else {
@@ -72,14 +99,25 @@ if ($DryRun) {
 }
 Write-Host "workspace $ws"
 
+# Pane n is reserved for seat n; adding one seat goes to the next free pane.
+$firstPane = 1
+if ($addOnly -and -not $DryRun) {
+    $used = @((herdr agent list | ConvertFrom-Json).result.agents |
+              Where-Object { $_.workspace_id -eq $ws } |
+              ForEach-Object { [int]($_.pane_id -replace '.*:p', '') }) | Sort-Object
+    $firstPane = if ($used.Count) { ($used | Measure-Object -Maximum).Maximum + 1 } else { 1 }
+} elseif ($addOnly) {
+    Write-Host "  would: add one pane and seat $Team-$Seat (next free pane)"
+}
+
 for ($i = 0; $i -lt $Seats.Count; $i++) {
     $seat = $Seats[$i]
     $agentName = "$Team-$seat"
-    $pane = "$ws" + ":p$($i + 1)"
+    $pane = "$ws" + ":p$($firstPane + $i)"
 
-    if ($i -gt 0) {
-        if ($DryRun) { Write-Host "  would: herdr pane split --pane $ws`:p1 --direction right --ratio 0.5" }
-        else { herdr pane split --pane "$ws`:p1" --direction right --ratio 0.5 | Out-Null }
+    if ($firstPane + $i -gt 1) {
+        if ($DryRun) { Write-Host "  would: herdr pane split --pane $ws`:p$($firstPane + $i - 1) --direction right --ratio 0.5" }
+        else { herdr pane split --pane "$ws`:p$($firstPane + $i - 1)" --direction right --ratio 0.5 | Out-Null }
     }
 
     $hargs = @('agent', 'start', $agentName, '--kind', 'claude', '--pane', $pane,
