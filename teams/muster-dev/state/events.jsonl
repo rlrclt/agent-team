@@ -1,0 +1,1 @@
+{"ts":"2026-10-21 18:17:20","task":"001","agent":"orchestrator","event":"task_created","role":"builder-core","goal":"Harden selftest: assert every CLI command rejects a missing --team"}

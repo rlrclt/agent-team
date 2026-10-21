@@ -1,0 +1,18 @@
+{
+  "id": "001",
+  "role": "builder-core",
+  "goal": "Harden selftest: assert every CLI command rejects a missing --team",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "Every work command exits nonzero without --team",
+    "Add the assertion to selftest()"
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}

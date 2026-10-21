@@ -74,6 +74,22 @@ const ROLE_FORBIDDEN = {
   'qa': [/.*/],
 };
 
+// Baselines for the built-in roles. A team may invent its own roles, but then
+// the built-in rules cannot know them — so a custom role is enforced from its
+// own name: `<x>-core` never touches scripts/, `<x>-shell` never touches the
+// CLI. That keeps a role split by file enforceable without a config file.
+const CUSTOM_ROLE_RULES = [
+  { match: /-core$/, forbid: [/(?:^|[\\/])(scripts|docs)[\\/]/i] },
+  { match: /-shell$/, forbid: [/^tools[\\/]|(?:^|[\\/])tools[\\/][^\\/]*\.mjs$/i] },
+];
+
+function patternsFor(agent) {
+  const key = roleKey(agent);
+  if (ROLE_FORBIDDEN[key]) return ROLE_FORBIDDEN[key];
+  const custom = CUSTOM_ROLE_RULES.find((r) => r.match.test(key));
+  return custom ? custom.forbid : null;
+}
+
 function checkBoundary(agent, filesStr, override, taskId) {
   if (!filesStr || override) return;
   const files = filesStr.split(',').map((f) => f.trim().replace(/\\/g, '/')).filter(Boolean);
@@ -109,7 +125,7 @@ function checkBoundary(agent, filesStr, override, taskId) {
   }
 
   // 2. Role-level baseline boundary check
-  const patterns = ROLE_FORBIDDEN[roleKey(agent)];
+  const patterns = patternsFor(agent);
   if (!patterns) return;
   for (const f of files) {
     for (const pat of patterns) {
@@ -360,12 +376,19 @@ function rolesOf(teamDir) {
 }
 
 // A seat may report its installed name (`alpha-builder`). Strip the team
-// prefix so role rules still apply instead of silently passing.
+// prefix so role rules still apply instead of silently passing. Custom roles
+// are matched by the boundary suffixes they encode (see CUSTOM_ROLE_RULES).
 function roleKey(agent) {
   if (!agent) return agent;
   if (ROLES.includes(agent)) return agent;
   for (const role of ROLES) {
     if (agent.endsWith('-' + role)) return role;
+  }
+  const custom = CUSTOM_ROLE_RULES.find((r) => r.match.test(agent));
+  if (custom) {
+    // `alpha-builder-core` -> `builder-core`
+    const m = /^.+?-([a-z0-9]+-[a-z0-9-]+)$/i.exec(agent);
+    if (m && custom.match.test(m[1])) return m[1];
   }
   return agent;
 }
@@ -456,7 +479,7 @@ function teamDoctor(name, root = TEAMS) {
     if (m && m[1] !== role) fail(`agents/${role}.md declares name '${m[1]}'`);
   }
   for (const role of roles) {
-    if (!ROLES.includes(role)) warn(`role '${role}' has no automatic boundary rule; only task allow/deny applies`);
+    if (!patternsFor(role)) warn(`role '${role}' has no automatic boundary rule; only task allow/deny applies`);
   }
 
   // 3. installed counterparts
@@ -1124,7 +1147,44 @@ function selftest() {
   assert(d6.problems.some((p) => p.includes('web-team-orchestrator')), 'doctor did not name the colliding file');
   rmSandbox(sb6);
 
-  // F3 regression: a lock dir with no owner file must be recoverable
+  // --- custom roles must keep their boundary -----------------------------
+  // A team can invent its own roles (muster-dev has builder-core and
+  // builder-shell). They must still be enforceable, and a seat that reports
+  // its installed name must resolve to the same rule.
+  const sb7 = mkSandbox();
+  fs.mkdirSync(path.join(sb7, 'alpha', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(sb7, 'alpha', 'agents', 'builder-core.md'), '---\nname: builder-core\n---\n');
+  fs.writeFileSync(path.join(sb7, 'alpha', 'agents', 'builder-shell.md'), '---\nname: builder-shell\n---\n');
+  const savedT = TEAM;
+  TEAM = resolveTeam('alpha', sb7);
+
+  quiet();
+  let coreBlocked = false;
+  try { checkBoundary('builder-core', 'scripts/seat-up.ps1', null, null); } catch { coreBlocked = true; }
+  loud();
+  assert(coreBlocked, 'builder-core touching scripts/ was allowed');
+
+  quiet();
+  let shellBlocked = false;
+  try { checkBoundary('builder-shell', 'tools/muster.mjs', null, null); } catch { shellBlocked = true; }
+  loud();
+  assert(shellBlocked, 'builder-shell touching tools/muster.mjs was allowed');
+
+  let coreAllowed = false;
+  try { checkBoundary('builder-core', 'tools/muster.mjs', null, null); coreAllowed = true; } catch {}
+  assert(coreAllowed, 'builder-core was blocked from its own file');
+
+  // the installed (prefixed) name resolves to the same rule
+  assert(roleKey('alpha-builder-core') === 'builder-core', 'prefixed custom role not resolved');
+  quiet();
+  let prefixedBlocked = false;
+  try { checkBoundary('alpha-builder-core', 'scripts/seat-up.ps1', null, null); } catch { prefixedBlocked = true; }
+  loud();
+  assert(prefixedBlocked, 'builder-core reported by its installed name escaped its boundary');
+
+  TEAM = savedT;
+  rmSandbox(sb7);
+
   const stuck = path.join(requireTeam().locks, 'stuck-1');
   fs.mkdirSync(stuck, { recursive: true });
   quiet();
