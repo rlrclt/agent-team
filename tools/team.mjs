@@ -564,6 +564,112 @@ function teamInstallCmd(names, dest) {
   for (const n of teams) installTeam(n, target, false);
 }
 
+// Pure and idempotent: applying it to already-rewritten text changes nothing.
+function rewriteLegacyText(text, name) {
+  let out = text;
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // state/... => teams/<name>/state/... but never a second time.
+  const pathRule = (p) => new RegExp(`(?<!teams\\/${esc(name)}\\/)${esc(p)}`, 'g');
+
+  out = out.replace(pathRule('state/AGENTS.md'), `teams/${name}/AGENTS.md`);
+  for (const p of ['state/tasks', 'state/learnings.jsonl', 'state/events.jsonl', 'state/LEARNINGS.md']) {
+    out = out.replace(pathRule(p), `teams/${name}/${p}`);
+  }
+
+  // Every team.mjs command gains --team, unless it already has one.
+  out = out.replace(/node tools\/team\.mjs (?!team )(?!--team )(?!selftest)([a-z][\w-]*)/g,
+    (all, sub) => `node tools/team.mjs --team ${name} ${sub}`);
+
+  // herdr addresses gain the team prefix.
+  for (const role of ROLES) {
+    out = out.replace(new RegExp(`herdr agent prompt (?<!${esc(name)}-)${esc(role)}(?!-)`, 'g'),
+      `herdr agent prompt ${name}-${role}`);
+  }
+
+  // Placeholder tokens left in role files.
+  out = out.split('<team>').join(name);
+
+  return out;
+}
+
+function importLegacy(name, workspace) {
+  if (!name || !workspace) die('usage: node tools/team.mjs team import-legacy <name> <workspace>');
+  if (!TEAM_NAME_RE.test(name)) die(`invalid team name '${name}'`);
+
+  const legacyState = path.join(ROOT, 'state');
+  const legacyAgents = path.join(ROOT, 'agents');
+  const target = path.join(TEAMS, name);
+
+  if (fs.existsSync(target)) die(`teams/${name} already exists - nothing to migrate`);
+  if (!fs.existsSync(legacyState) || !fs.existsSync(legacyAgents)) {
+    die('no legacy state/ or agents/ at the repo root - migration already ran or this is a fresh clone');
+  }
+  if (fs.existsSync(path.join(ROOT, '.git'))) {
+    const dirty = execSync('git status --porcelain state agents', { cwd: ROOT, encoding: 'utf8' }).trim();
+    if (dirty) {
+      die('commit or stash changes under state/ and agents/ first:\n' + dirty);
+    }
+  }
+
+  fs.mkdirSync(path.join(target, 'state'), { recursive: true });
+  moveDir(legacyAgents, path.join(target, 'agents'));
+
+  const contractFrom = path.join(legacyState, 'AGENTS.md');
+  if (fs.existsSync(contractFrom)) {
+    fs.writeFileSync(path.join(target, 'AGENTS.md'), fs.readFileSync(contractFrom, 'utf8'));
+    fs.rmSync(contractFrom);
+  }
+
+  for (const item of fs.readdirSync(legacyState)) {
+    const from = path.join(legacyState, item);
+    const to = path.join(target, 'state', item);
+    moveDir(from, to);
+  }
+  fs.rmSync(legacyState, { recursive: true, force: true });
+
+  // Rewrite prose in the moved files.
+  const contract = path.join(target, 'AGENTS.md');
+  if (fs.existsSync(contract)) {
+    fs.writeFileSync(contract, rewriteLegacyText(fs.readFileSync(contract, 'utf8'), name));
+  }
+  for (const role of rolesOf(target)) {
+    const f = path.join(target, 'agents', `${role}.md`);
+    fs.writeFileSync(f, rewriteLegacyText(fs.readFileSync(f, 'utf8'), name));
+  }
+  const tasksDir = path.join(target, 'state', 'tasks');
+  if (fs.existsSync(tasksDir)) {
+    for (const f of fs.readdirSync(tasksDir)) {
+      if (!f.endsWith('.md')) continue;
+      const p = path.join(tasksDir, f);
+      fs.writeFileSync(p, rewriteLegacyText(fs.readFileSync(p, 'utf8'), name));
+    }
+  }
+
+  fs.writeFileSync(path.join(target, 'team.json'), JSON.stringify({
+    name,
+    workspace,
+    status: 'draft',
+    createdAt: new Date().toISOString(),
+  }, null, 2) + '\n');
+  if (!fs.existsSync(path.join(target, 'state', 'events.jsonl'))) {
+    fs.writeFileSync(path.join(target, 'state', 'events.jsonl'), '');
+  }
+  if (!fs.existsSync(tasksDir)) fs.mkdirSync(tasksDir, { recursive: true });
+
+  console.log(`migrated legacy state into teams/${name}`);
+  const r = teamDoctor(name);
+  if (!r.ok) process.exit(1);
+}
+
+function moveDir(from, to) {
+  try {
+    fs.renameSync(from, to);
+  } catch {
+    fs.cpSync(from, to, { recursive: true });
+    fs.rmSync(from, { recursive: true, force: true });
+  }
+}
+
 function teamCmd(args) {
   const [sub, ...a] = args;
   if (sub === 'list') teamList();
@@ -577,7 +683,11 @@ function teamCmd(args) {
     const flags = parseFlags(a);
     teamInstallCmd(a.filter((x) => !x.startsWith('--')), flags.dest);
   }
-  else die('usage: team.mjs team list|new <name> <workspace>|info <name>|doctor <name>|install [<name>]');
+  else if (sub === 'import-legacy') {
+    const positional = a.filter((x) => !x.startsWith('--'));
+    importLegacy(positional[0], positional[1] || 'workspace');
+  }
+  else die('usage: team.mjs team list|new <name> <workspace>|info <name>|doctor <name>|install [<name>]|import-legacy <name> <workspace>');
 }
 
 function status(id) {
@@ -907,6 +1017,20 @@ function selftest() {
     'force left the file stale');
   fs.rmSync(dest, { recursive: true, force: true });
   rmSandbox(sb4);
+
+  // --- legacy rewrite ---------------------------------------------------
+  const src = [
+    'Read `state/AGENTS.md` first.',
+    'node tools/team.mjs claim 001 builder',
+    'node tools/team.mjs --team <team> status',
+    'herdr agent prompt orchestrator "hi"',
+  ].join('\n');
+  const once = rewriteLegacyText(src, 'web-team');
+  assert(once.includes('teams/web-team/AGENTS.md'), 'contract path not rewritten');
+  assert(once.includes('--team web-team claim'), 'command not team-scoped');
+  assert(!once.includes('team.mjs --team web-team --team'), 'command rewritten twice');
+  assert(once.includes('herdr agent prompt web-team-orchestrator'), 'herdr address not prefixed');
+  assert(rewriteLegacyText(once, 'web-team') === once, 'rewrite is not idempotent');
   fs.rmSync(path.join(requireTeam().locks, id), { recursive: true, force: true });
   TEAM = savedTEAM;
   rmSandbox(sb);
