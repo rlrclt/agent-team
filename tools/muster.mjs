@@ -990,7 +990,7 @@ function getTeamState(team = requireTeam()) {
 
 function dashboardHtml(teamName) {
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="th">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1007,7 +1007,7 @@ function dashboardHtml(teamName) {
   --cyan-glow: #22d3ee;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background: var(--bg); color: var(--text); padding: 24px; font-size: 13px; line-height: 1.5; }
+body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Sarabun", "Noto Sans Thai", sans-serif; background: var(--bg); color: var(--text); padding: 24px; font-size: 13px; line-height: 1.5; }
 header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 24px; }
 .brand { display: flex; align-items: center; gap: 12px; }
 .logo { font-size: 18px; font-weight: 700; color: var(--cyan); letter-spacing: -0.5px; }
@@ -1018,14 +1018,16 @@ header { display: flex; justify-content: space-between; align-items: center; bor
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
 .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
 .card-title span.count { color: var(--cyan); }
+.sub { font-size: 10px; color: var(--muted); font-weight: normal; margin-left: 4px; text-transform: none; }
 table { width: 100%; border-collapse: collapse; text-align: left; }
 th { color: var(--muted); font-size: 11px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 td { padding: 6px 8px; border-bottom: 1px solid #131c2e; }
 .role { font-weight: 600; color: var(--text); }
 .lock-tag { color: #f59e0b; }
 .msg-tag { color: var(--cyan); }
+.edge-kind { color: var(--cyan-glow); font-size: 11px; font-family: ui-monospace, monospace; }
 .events-stream { max-height: 300px; overflow-y: auto; font-size: 12px; display: flex; flex-direction: column-reverse; gap: 4px; }
-.event-row { padding: 4px 8px; border-radius: 4px; background: #0c121e; display: flex; gap: 10px; font-family: monospace; }
+.event-row { padding: 4px 8px; border-radius: 4px; background: #0c121e; display: flex; gap: 10px; font-family: ui-monospace, monospace; }
 .event-ts { color: var(--muted); }
 .event-actor { color: var(--cyan-glow); font-weight: 600; }
 .event-type { color: var(--text); }
@@ -1038,40 +1040,51 @@ td { padding: 6px 8px; border-bottom: 1px solid #131c2e; }
     <div class="logo">muster</div>
     <div class="badge">${teamName}</div>
   </div>
-  <div id="conn" style="color:var(--muted);font-size:11px;">connecting...</div>
+  <div id="conn" style="color:var(--muted);font-size:11px;">กำลังเชื่อมต่อ... / connecting...</div>
 </header>
 <div class="grid">
   <div class="card">
-    <div class="card-title">Seats <span class="count" id="seat-count">0</span></div>
+    <div class="card-title">ตำแหน่งการทำงาน <span class="sub">/ Seats</span> <span class="count" id="seat-count">0</span></div>
     <table>
-      <thead><tr><th>Role</th><th>Lock</th><th>Waiting</th><th>Last Event</th></tr></thead>
+      <thead><tr><th>บทบาท <span class="sub">/ Role</span></th><th>การถือล็อค <span class="sub">/ Lock</span></th><th>ข้อความรอ <span class="sub">/ Waiting</span></th><th>เหตุการณ์ล่าสุด <span class="sub">/ Last</span></th></tr></thead>
       <tbody id="seats-body"></tbody>
     </table>
   </div>
   <div class="card">
-    <div class="card-title">Tasks <span class="count" id="task-count">0</span></div>
+    <div class="card-title">รายการงาน <span class="sub">/ Tasks</span> <span class="count" id="task-count">0</span></div>
     <table>
-      <thead><tr><th>Task</th><th>Status</th><th>Last Event</th></tr></thead>
+      <thead><tr><th>รหัสงาน <span class="sub">/ Task</span></th><th>สถานะ <span class="sub">/ Status</span></th><th>เหตุการณ์ล่าสุด <span class="sub">/ Last</span></th></tr></thead>
       <tbody id="tasks-body"></tbody>
+    </table>
+  </div>
+  <div class="card">
+    <div class="card-title">โครงสร้างเส้นทางทีม <span class="sub">/ Edges Topology</span> <span class="count" id="edge-count">0</span></div>
+    <table>
+      <thead><tr><th>ต้นทาง <span class="sub">/ From</span></th><th>ความสัมพันธ์ <span class="sub">/ Kind</span></th><th>ปลายทาง <span class="sub">/ To</span></th></tr></thead>
+      <tbody id="edges-body"></tbody>
     </table>
   </div>
 </div>
 <div class="card">
-  <div class="card-title">Recent Events</div>
+  <div class="card-title">บันทึกเหตุการณ์ล่าสุด <span class="sub">/ Recent Events</span></div>
   <div class="events-stream" id="events-body"></div>
 </div>
 <script>
 function render(s) {
-  document.getElementById('conn').textContent = 'live (sse)';
+  document.getElementById('conn').textContent = 'เชื่อมต่อสด / live (sse)';
   document.getElementById('conn').style.color = 'var(--cyan)';
   document.getElementById('seat-count').textContent = s.seats.length;
   document.getElementById('task-count').textContent = s.tasks.length;
+  document.getElementById('edge-count').textContent = (s.edges || []).length;
   document.getElementById('seats-body').innerHTML = s.seats.map(st =>
     '<tr><td class="role">' + st.role + '</td><td class="lock-tag">' + st.lock + '</td><td class="msg-tag">' + st.waiting + '</td><td>' + st.last + '</td></tr>'
   ).join('');
   document.getElementById('tasks-body').innerHTML = s.tasks.map(t =>
-    '<tr><td class="role">' + t.id + '</td><td>' + (t.held ? '<span class="lock-tag">HELD (' + t.held + ')</span>' : '<span style="color:var(--muted)">OPEN</span>') + '</td><td>' + t.last + '</td></tr>'
+    '<tr><td class="role">' + t.id + '</td><td>' + (t.held ? '<span class="lock-tag">ถือครอง / HELD (' + t.held + ')</span>' : '<span style="color:var(--muted)">ว่าง / OPEN</span>') + '</td><td>' + t.last + '</td></tr>'
   ).join('');
+  document.getElementById('edges-body').innerHTML = (s.edges && s.edges.length)
+    ? s.edges.map(e => '<tr><td class="role">' + e.from + '</td><td><span class="edge-kind">' + e.kind + '</span></td><td class="role">' + e.to + '</td></tr>').join('')
+    : '<tr><td colspan="3" style="color:var(--muted);text-align:center;padding:12px">เปิดกว้างทั้งหมด / Open (No edge restrictions)</td></tr>';
   document.getElementById('events-body').innerHTML = (s.events || []).slice(-30).map(e => {
     const actor = e.event === 'msg' ? (e.from + '->' + e.to) : (e.agent || '-');
     return '<div class="event-row"><span class="event-ts">' + e.ts.slice(11) + '</span><span class="event-actor">' + actor + '</span><span class="event-type">' + e.event + (e.task ? ' [' + e.task + ']' : '') + '</span></div>';
@@ -1080,7 +1093,7 @@ function render(s) {
 fetch('/api/state').then(r => r.json()).then(render).catch(() => {});
 const es = new EventSource('/api/events');
 es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch {} };
-es.onerror = () => { document.getElementById('conn').textContent = 'reconnecting...'; document.getElementById('conn').style.color = 'var(--muted)'; };
+es.onerror = () => { document.getElementById('conn').textContent = 'กำลังเชื่อมต่อใหม่... / reconnecting...'; document.getElementById('conn').style.color = 'var(--muted)'; };
 </script>
 </body>
 </html>`;
@@ -1720,6 +1733,9 @@ async function selftest() {
     assert(htmlRes.headers.get('content-type')?.includes('text/html'), 'dashboard GET / is not html');
     const htmlText = await htmlRes.text();
     assert(htmlText.includes('muster') && htmlText.includes('cyan'), 'dashboard html missing muster or cyan theme');
+    assert(htmlText.includes('Edges Topology'), 'dashboard html missing Edges Topology card');
+    assert(htmlText.includes('ตำแหน่งการทำงาน'), 'dashboard html missing Thai localization');
+    assert(htmlText.includes('id="edges-body"'), 'dashboard html missing edges-body element');
 
     const stateRes = await fetch(`http://127.0.0.1:${dPort}/api/state`);
     assert(stateRes.status === 200, 'dashboard GET /api/state did not return 200');

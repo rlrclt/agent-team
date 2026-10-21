@@ -1,0 +1,17 @@
+{
+  "id": "012",
+  "role": "builder-core",
+  "goal": "Localize Web Dashboard UI to clean Thai and add Edges Topology card",
+  "boundary": {
+    "allow": [
+      "tools/muster.mjs"
+    ],
+    "deny": [
+      "scripts/**"
+    ]
+  },
+  "spec": [
+    "Update the Web Dashboard in tools/muster.mjs to use clean Thai UI with clear bilingual sub-labels."
+  ],
+  "verify": "node tools/muster.mjs selftest"
+}
