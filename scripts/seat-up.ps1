@@ -7,7 +7,7 @@
 # so two teams' seats can never collide in herdr or in ~/.claude/agents.
 # MCP servers, skills and plugins all come from the user's global config
 # (~/.claude), so there is no per-seat settings file.
-param([string]$Team, [switch]$DryRun)
+param([string]$Team, [switch]$DryRun, [switch]$Replace)
 
 $Root = Split-Path -Parent $PSScriptRoot
 if (-not $Team) { throw "usage: seat-up.ps1 -Team <name> [-DryRun]  (see: node tools/muster.mjs team list)" }
@@ -40,6 +40,27 @@ foreach ($s in $Seats) {
     if (-not (Test-Path $roleFile)) { throw "role '$s' is in teams/$Team/agents but not installed - run scripts/install.ps1 -Team $Team" }
 }
 Write-Host "team: $Team ($($Seats -join ', '))"
+
+# Refuse to create a second workspace for a team that is already up: two sets
+# of seats on one state directory race each other for the same task locks.
+if (-not $DryRun -and -not $Replace -and (Get-Command herdr -ErrorAction SilentlyContinue)) {
+    try {
+        $existing = (herdr workspace list | ConvertFrom-Json).result.workspaces |
+                    Where-Object { $_.label -eq $Team }
+        if ($existing) {
+            $running = (herdr agent list | ConvertFrom-Json).result.agents |
+                       Where-Object { $_.workspace_id -eq $existing.workspace_id }
+            if ($running) {
+                Write-Host "team '$Team' is already up in workspace $($existing.workspace_id):" -ForegroundColor Yellow
+                foreach ($a in $running) { Write-Host ("  {0,-24} {1}" -f $a.name, $a.agent_status) }
+                throw "refusing to seat a second copy. Pass -Replace to force, or bring it down first."
+            }
+        }
+    } catch {
+        if ($_.Exception.Message -like 'refusing*') { throw }
+        # a failed listing must not block the launch
+    }
+}
 
 if ($DryRun) {
     Write-Host "  would: herdr workspace create --cwd $Root --label $Team --no-focus"

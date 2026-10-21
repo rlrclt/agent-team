@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TEAMS = path.join(ROOT, 'teams');
@@ -148,8 +148,15 @@ function claim(id, agent) {
 
 function release(id, agent, reason = '') {
   const held = ownerOf(id);
-  if (!held) die(`release denied: ${id} is not claimed`);
-  if (held !== agent) die(`release denied: ${id} is held by ${held}, not ${agent}`);
+  if (!held) {
+    // A crash between mkdir and the owner write leaves a lock nobody owns.
+    // `stale` is the recovery path the claim error message advertises.
+    if (reason !== 'stale') die(`release denied: ${id} is not claimed`);
+    fs.rmSync(path.join(requireTeam().locks, id), { recursive: true, force: true });
+    logEvent({ task: id, agent, event: 'release', note: 'stale (no owner file)' });
+    return console.log(`released ${id} (stale, had no owner)`);
+  }
+  if (held !== agent && reason !== 'stale') die(`release denied: ${id} is held by ${held}, not ${agent}`);
   fs.rmSync(path.join(requireTeam().locks, id), { recursive: true });
   logEvent({ task: id, agent, event: 'release', note: reason });
   console.log(`released ${id}`);
@@ -378,7 +385,7 @@ function teamNames(root = TEAMS) {
 
 function teamList(root = TEAMS) {
   const names = teamNames(root);
-  if (names.length === 0) return console.log('no teams. run: node tools/muster.mjs team new <name> <workspace>');
+  if (names.length === 0) return console.log('no teams. run: node tools/muster.mjs team new <name> --workspace <path>');
   for (const name of names) {
     const t = JSON.parse(fs.readFileSync(path.join(root, name, 'team.json'), 'utf8'));
     const tasksDir = path.join(root, name, 'state', 'tasks');
@@ -390,7 +397,7 @@ function teamList(root = TEAMS) {
 }
 
 function teamNew(name, workspace, root = TEAMS) {
-  if (!name || !workspace) die('usage: node tools/muster.mjs team new <name> <workspace>');
+  if (!name || !workspace) die('usage: node tools/muster.mjs team new <name> --workspace <path>');
   if (!TEAM_NAME_RE.test(name)) die(`invalid team name '${name}' (expected [a-z][a-z0-9-]{1,31})`);
   const dir = path.join(root, name);
   if (fs.existsSync(path.join(dir, 'team.json'))) die(`team already exists: ${name}`);
@@ -460,15 +467,16 @@ function teamDoctor(name, root = TEAMS) {
     }
   }
 
-  // 4. no other team claims the same role name
+  // 4. another team's installed name cannot equal one of ours. Installed names
+  // are `<team>-<role>`, so a clash needs nested names: team `web` with role
+  // `team-orchestrator` and team `web-team` with role `orchestrator` both
+  // install `web-team-orchestrator`.
+  const ours = new Set(roles.map((r) => `${name}-${r}`));
   for (const other of teamNames(root)) {
     if (other === name) continue;
     for (const role of rolesOf(path.join(root, other))) {
-      if (roles.includes(role)) {
-        // Same role name in two teams is fine: install prefixes them. Report only
-        // if the installed file is not clearly owned by one team.
-        break;
-      }
+      const theirs = `${other}-${role}`;
+      if (ours.has(theirs)) fail(`installed name '${theirs}' also comes from team '${other}' (role '${role}')`);
     }
   }
 
@@ -521,9 +529,11 @@ function teamOwnerOf(teamDir, task) {
 }
 
 const MARKER = (name) => `<!-- muster: ${name} -->`;
-// Files installed before the rename carry the old marker; still ours.
+// The marker must NOT be the first line: Claude Code's --agent loader only
+// reads a file whose first line is the `---` frontmatter fence. It sits at the
+// end instead.
 const ownedBy = (text, name) =>
-  text.startsWith(MARKER(name)) || text.startsWith(`<!-- agent-team: ${name} -->`);
+  text.includes(MARKER(name)) || text.includes(`<!-- agent-team: ${name} -->`);
 
 function installTeam(name, dest, force, root = TEAMS) {
   const dir = path.join(root, name);
@@ -551,7 +561,7 @@ function installTeam(name, dest, force, root = TEAMS) {
     text = text.replace(/^---\r?\n[\s\S]*?\r?\n---/, (fm) =>
       fm.replace(/^name:\s*\S+/m, `name: ${name}-${role}`));
     text = text.split('<team>').join(name);
-    fs.writeFileSync(target, MARKER(name) + '\n' + text);
+    fs.writeFileSync(target, text.trimEnd() + '\n' + MARKER(name) + '\n');
     copied++;
   }
 
@@ -748,6 +758,17 @@ function status(id) {
   }
 }
 
+// One argv array, no shell: a message containing " or & or %VAR% reaches herdr
+// literally instead of being parsed by cmd.exe.
+function herdrArgv(agentName, message) {
+  return ['agent', 'prompt', agentName, message];
+}
+
+function herdrPrompt(agentName, message) {
+  const [bin, ...args] = ['herdr', ...herdrArgv(agentName, message)];
+  return execFileSync(bin, args, { stdio: 'ignore' });
+}
+
 function send(fromAgent, toAgent, msg) {
   if (!fromAgent || !toAgent || !msg) {
     die('usage: muster.mjs send <from-agent> <to-agent> "<message>"');
@@ -757,8 +778,7 @@ function send(fromAgent, toAgent, msg) {
   logEvent({ event: 'msg', from: fromAgent, to: toAgent, msg });
 
   try {
-    const safeMsg = msg.replace(/["\\`$]/g, '\\$&');
-    execSync(`herdr agent prompt ${requireTeamName()}-${toAgent} "[from ${fromAgent}] ${safeMsg}"`, { stdio: 'ignore' });
+    herdrPrompt(`${requireTeamName()}-${toAgent}`, `[from ${fromAgent}] ${msg}`);
     console.log(`delivered to ${toAgent}`);
   } catch {
     console.log(`logged message for ${toAgent} (herdr dispatch skipped)`);
@@ -1028,6 +1048,50 @@ function selftest() {
   assert(out.includes('name: alpha-builder'), 'frontmatter name not prefixed');
   assert(out.includes('--team alpha'), '<team> token not substituted');
   assert(!out.includes('<team>'), 'token left unsubstituted');
+
+  // F1 regression: Claude Code's --agent loader only reads a file whose first
+  // line is the `---` fence. A marker line above it hides the whole agent.
+  const installedText = fs.readFileSync(path.join(dest, 'alpha-builder.md'), 'utf8');
+  assert(installedText.startsWith('---'), 'installed role file does not start with the frontmatter fence');
+  assert(installedText.includes(`<!-- muster: alpha -->`), 'install marker missing');
+
+  // F2 regression: the message reaches herdr as ONE argv element, never a
+  // string the shell parses. Asserted on the argv this tool builds.
+  const evil = 'hi" & echo PWNED & rem " %PATH%';
+  const f2 = herdrArgv('alpha-builder-backend', `[from builder-frontend] ${evil}`);
+  assert(f2.length === 4, 'herdr argv shape changed');
+  assert(f2[2] === 'alpha-builder-backend', `herdr address wrong: ${f2[2]}`);
+  assert(f2[3] === `[from builder-frontend] ${evil}`, 'message was rewritten before dispatch');
+  assert(!/^[a-z]+ (agent|prompt) /i.test(f2[3]), 'args were flattened into one shell string');
+  // The dispatched binary plus args must never be a single string with a shell.
+  assert(typeof herdrArgv === 'function' && herdrArgv.length === 2, 'herdr dispatch signature changed');
+
+  // F4 regression: nested team names that install the same file are caught.
+  // web + role 'team-orchestrator' and web-team + role 'orchestrator' both
+  // produce 'web-team-orchestrator'.
+  const sb6 = mkSandbox();
+  fs.mkdirSync(path.join(sb6, 'web', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(sb6, 'web', 'team.json'), JSON.stringify({ name: 'web', workspace: '.', status: 'ready' }));
+  fs.writeFileSync(path.join(sb6, 'web', 'agents', 'team-orchestrator.md'), '---\nname: team-orchestrator\n---\n');
+  fs.writeFileSync(path.join(sb6, 'web', 'agents', 'other.md'), '---\nname: other\n---\n');
+  fs.mkdirSync(path.join(sb6, 'web-team', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(sb6, 'web-team', 'team.json'), JSON.stringify({ name: 'web-team', workspace: '.', status: 'ready' }));
+  fs.writeFileSync(path.join(sb6, 'web-team', 'agents', 'orchestrator.md'), '---\nname: orchestrator\n---\n');
+  fs.writeFileSync(path.join(sb6, 'web-team', 'agents', 'other.md'), '---\nname: other\n---\n');
+  const d6 = teamDoctor('web-team', sb6);
+  assert(!d6.ok, 'doctor missed a nested-name install collision');
+  assert(d6.problems.some((p) => p.includes('web-team-orchestrator')), 'doctor did not name the colliding file');
+  rmSandbox(sb6);
+
+  // F3 regression: a lock dir with no owner file must be recoverable
+  const stuck = path.join(requireTeam().locks, 'stuck-1');
+  fs.mkdirSync(stuck, { recursive: true });
+  quiet();
+  let staleOk = false;
+  try { release('stuck-1', 'alice', 'stale'); staleOk = true; } catch {}
+  loud();
+  assert(staleOk, 'a lock with no owner file could not be released as stale');
+  assert(!fs.existsSync(stuck), 'stale release left the lock behind');
 
   // a CRLF role file (git on Windows) must be prefixed too
   fs.writeFileSync(path.join(sb4, 'alpha', 'agents', 'qa.md'),
